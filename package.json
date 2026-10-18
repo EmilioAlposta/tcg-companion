@@ -1,0 +1,43 @@
+{
+  "name": "tcg-companion",
+  "productName": "TCG Companion",
+  "version": "0.1.0",
+  "description": "Gestor de colecciones de cartas TCG (Pokémon, Magic, One Piece)",
+  "main": "main.js",
+  "author": "Emilio",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icons": "node scripts/make-icons.js",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.tcgcompanion.app",
+    "productName": "TCG Companion",
+    "icon": "assets/icon.ico",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "renderer/**",
+      "assets/**",
+      "!assets/logo-source.webp"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "sql.js": "^1.15.0"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.5"
+  }
+}
