@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
-const { Database } = require('./src/db');
-const { fetchSetCards, fetchTcgplayerProductId } = require('./src/pokemon-api');
+const { Database, setCollectionId } = require('./src/db');
+const { fetchSetCards, fetchSets, searchCards, fetchTcgplayerProductId } = require('./src/pokemon-api');
 const { syncPokedex, refreshPrices } = require('./src/pokedex-sync');
 
 let db;
@@ -34,20 +34,54 @@ async function syncCollection(collectionId) {
 
 function registerIpc() {
   ipcMain.handle('db:path', () => db.filePath);
-  ipcMain.handle('collections:list', (_e, tcg) => db.getCollections(tcg));
+  ipcMain.handle('collections:list', async (_e, tcg, { refreshSets = false } = {}) => {
+    // La lista de sets se descarga la primera vez; sin conexión seguimos con lo que haya.
+    if (tcg === 'pokemon' && (refreshSets || !db.hasSets())) {
+      try {
+        db.replaceSets(await fetchSets());
+      } catch (err) {
+        if (refreshSets) throw err;
+      }
+    }
+    return db.getCollections(tcg);
+  });
   ipcMain.handle('collection:get', async (_e, id, { refresh = false } = {}) => {
     // La primera vez (o al pulsar "Actualizar") se descargan las cartas de la API.
-    if (refresh || db.getCards(id).length === 0) await syncCollection(id);
+    // Las colecciones custom no vienen de la API: sus cartas las elige el usuario.
+    const col = db.getCollection(id);
+    if (col && !col.custom && (refresh || !col.synced_at)) await syncCollection(id);
     return { collection: db.getCollection(id), cards: db.getCards(id) };
+  });
+  ipcMain.handle('custom:save', (_e, draft) => {
+    const name = String(draft?.name ?? '').trim();
+    if (!name) throw new Error('The collection needs a name');
+    return db.saveCustomCollection({ id: draft.id || null, name, cards: Array.isArray(draft.cards) ? draft.cards : [] });
+  });
+  ipcMain.handle('custom:delete', (_e, id) => {
+    db.deleteCustomCollection(id);
+    return true;
   });
   ipcMain.handle('notes:get', (_e, id) => db.getNotes(id));
   ipcMain.handle('collection:setNotes', (_e, id, notes) => {
     db.setCollectionNotes(id, String(notes ?? ''));
     return true;
   });
-  ipcMain.handle('card:setOwned', (_e, cardId, quantity) => {
+  // card (opcional): datos de la carta cuando se marca desde el buscador, para añadirla a su set.
+  ipcMain.handle('card:setOwned', (_e, cardId, quantity, card) => {
+    if (quantity > 0) {
+      if (card?.setId) db.addCardToSet(card);
+      else db.linkOwnedPokedexCards();
+    }
     db.setOwned(cardId, Math.max(0, Math.floor(quantity)));
     return true;
+  });
+  ipcMain.handle('cards:search', async (_e, name) => {
+    const found = (await searchCards(name)).filter((c) => c.set && db.getCollection(setCollectionId(c.set.id)));
+    const sets = Object.fromEntries(db.getCollections('pokemon').map((c) => [c.set_id, c]));
+    found.sort((a, b) => (sets[b.set.id]?.release_date || '').localeCompare(sets[a.set.id]?.release_date || '')
+      || a.localId.localeCompare(b.localId, undefined, { numeric: true }));
+    const qty = db.getQuantities(found.map((c) => c.id));
+    return found.map((c) => ({ ...c, quantity: qty[c.id] }));
   });
   ipcMain.handle('db:reveal', () => shell.showItemInFolder(db.filePath));
   ipcMain.handle('card:setHidden', (_e, collectionId, cardId, hidden) => {

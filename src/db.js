@@ -11,7 +11,13 @@ CREATE TABLE IF NOT EXISTS collections (
   name        TEXT NOT NULL,
   set_id      TEXT NOT NULL,
   name_filter TEXT,
-  sort_order  INTEGER DEFAULT 0
+  sort_order  INTEGER DEFAULT 0,
+  serie_name   TEXT,
+  release_date TEXT,
+  logo         TEXT,
+  card_total   INTEGER,          -- nº de cartas según la API (antes de descargarlas)
+  synced_at    TEXT,             -- NULL = las cartas del set todavía no se han descargado
+  custom       INTEGER NOT NULL DEFAULT 0  -- 1 = colección creada por el usuario con cartas de varios sets
 );
 
 CREATE TABLE IF NOT EXISTS cards (
@@ -81,11 +87,6 @@ CREATE TABLE IF NOT EXISTS card_prices (
 );
 `;
 
-// Colecciones disponibles. Para añadir más, basta con añadir filas aquí.
-const SEED_COLLECTIONS = [
-  { id: 'pkm-30th-pikachus', tcg: 'pokemon', name: '30th Celebration - Pikachus', set_id: '30th', name_filter: 'Pikachu', sort_order: 1 },
-];
-
 // Condición SQL: la carta k no está oculta en su colección.
 const VISIBLE = `NOT EXISTS (SELECT 1 FROM hidden_cards h WHERE h.collection_id = k.collection_id AND h.card_id = k.id)`;
 
@@ -109,14 +110,23 @@ class Database {
       this.db.run(`ALTER TABLE fullart_cards ADD COLUMN kind TEXT NOT NULL DEFAULT 'fullart'`);
       this.db.run('DELETE FROM pokedex'); // fuerza a volver a descargar la Pokédex (con promos)
     }
-    const stmt = this.db.prepare(
-      `INSERT INTO collections (id, tcg, name, set_id, name_filter, sort_order)
-       VALUES ($id, $tcg, $name, $set_id, $name_filter, $sort_order)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, set_id = excluded.set_id,
-         name_filter = excluded.name_filter, sort_order = excluded.sort_order`
-    );
-    for (const c of SEED_COLLECTIONS) stmt.run(prefix(c));
-    stmt.free();
+    // Migración: columnas de sets añadidas cuando se incorporaron todos los sets de TCGdex.
+    const colCols = this.all('PRAGMA table_info(collections)').map((c) => c.name);
+    for (const [col, type] of [['serie_name', 'TEXT'], ['release_date', 'TEXT'], ['logo', 'TEXT'],
+      ['card_total', 'INTEGER'], ['synced_at', 'TEXT'], ['custom', 'INTEGER NOT NULL DEFAULT 0']]) {
+      if (!colCols.includes(col)) this.db.run(`ALTER TABLE collections ADD COLUMN ${col} ${type}`);
+    }
+    if (!colCols.includes('synced_at')) {
+      this.db.run(`UPDATE collections SET synced_at = $now
+                    WHERE EXISTS (SELECT 1 FROM cards k WHERE k.collection_id = collections.id)`,
+        { $now: new Date().toISOString() });
+    }
+    // Migración: la antigua colección fija "30th Celebration - Pikachus" pasa a ser una colección custom
+    // (conserva sus cartas, las ocultas y las notas, y ya se puede editar o borrar).
+    if (!colCols.includes('custom')) {
+      this.db.run(`UPDATE collections SET custom = 1, name_filter = NULL, set_id = '', sort_order = 0
+                    WHERE id = 'pkm-30th-pikachus'`);
+    }
     this.save();
   }
 
@@ -146,11 +156,11 @@ class Database {
       `SELECT c.*,
               (SELECT COUNT(*) FROM cards k WHERE k.collection_id = c.id
                   AND NOT ${VISIBLE}) AS hidden,
-              (SELECT COUNT(*) FROM cards k WHERE k.collection_id = c.id
-                  AND ${VISIBLE}) AS total,
+              CASE WHEN c.synced_at IS NULL THEN COALESCE(c.card_total, 0)
+                   ELSE (SELECT COUNT(*) FROM cards k WHERE k.collection_id = c.id AND ${VISIBLE}) END AS total,
               (SELECT COUNT(*) FROM cards k JOIN owned_cards o ON o.card_id = k.id
                 WHERE k.collection_id = c.id AND ${VISIBLE}) AS owned
-         FROM collections c WHERE c.tcg = $tcg ORDER BY c.sort_order, c.name`,
+         FROM collections c WHERE c.tcg = $tcg ORDER BY c.sort_order, c.release_date DESC, c.name`,
       { tcg }
     );
   }
@@ -184,14 +194,16 @@ class Database {
 
   getCards(collectionId) {
     return this.all(
-      `SELECT k.id, k.local_id, k.name, k.rarity, k.illustrator, k.image_url,
+      `SELECT k.id, k.set_id, k.local_id, k.name, k.rarity, k.illustrator, k.image_url,
+              json_extract(k.data_json, '$.set.name') AS set_name,
               json_extract(k.data_json, '$.set.cardCount.official') AS set_official,
               COALESCE(o.quantity, 0) AS quantity,
               CASE WHEN h.card_id IS NULL THEN 0 ELSE 1 END AS hidden
          FROM cards k LEFT JOIN owned_cards o ON o.card_id = k.id
          LEFT JOIN hidden_cards h ON h.collection_id = k.collection_id AND h.card_id = k.id
         WHERE k.collection_id = $cid
-        ORDER BY k.local_id`,
+        ORDER BY CASE WHEN (SELECT custom FROM collections WHERE id = $cid) = 1 THEN k.fetched_at END,
+                 k.local_id`,
       { cid: collectionId }
     );
   }
@@ -213,12 +225,121 @@ class Database {
         });
       }
       stmt.free();
+      this.db.run('UPDATE collections SET synced_at = $now WHERE id = $cid', { $cid: collectionId, $now: now });
       this.db.run('COMMIT');
     } catch (e) {
       this.db.run('ROLLBACK');
       throw e;
     }
     this.save();
+  }
+
+  // ---------- Colecciones custom ----------
+
+  // Crea (sin id) o actualiza una colección custom con su nombre y su lista de cartas. Devuelve el id.
+  saveCustomCollection({ id, name, cards }) {
+    const now = Date.now();
+    this.db.run('BEGIN');
+    try {
+      if (!id) {
+        id = `custom-${now.toString(36)}`;
+        this.db.run(
+          `INSERT INTO collections (id, tcg, name, set_id, sort_order, custom, synced_at)
+           VALUES ($id, 'pokemon', $name, '', 0, 1, $now)`,
+          { $id: id, $name: name, $now: new Date(now).toISOString() }
+        );
+      } else {
+        this.db.run('UPDATE collections SET name = $name WHERE id = $id AND custom = 1', { $id: id, $name: name });
+      }
+      const keep = new Set(cards.map((c) => c.id));
+      for (const { id: cardId } of this.all('SELECT id FROM cards WHERE collection_id = $cid', { cid: id })) {
+        if (keep.has(cardId)) continue;
+        this.db.run('DELETE FROM cards WHERE collection_id = $cid AND id = $id', { $cid: id, $id: cardId });
+        this.db.run('DELETE FROM hidden_cards WHERE collection_id = $cid AND card_id = $id', { $cid: id, $id: cardId });
+      }
+      // fetched_at guarda el orden en que se añadieron (las que ya estaban conservan el suyo).
+      const stmt = this.db.prepare(
+        `INSERT OR IGNORE INTO cards (id, collection_id, set_id, local_id, name, rarity, image_url, data_json, fetched_at)
+         VALUES ($id, $cid, $set_id, $local_id, $name, $rarity, $image_url, $data_json, $at)`
+      );
+      cards.forEach((c, i) => stmt.run({
+        $id: c.id, $cid: id, $set_id: c.setId || '', $local_id: c.localId || '', $name: c.name,
+        $rarity: c.rarity || null, $image_url: c.image || null,
+        $data_json: JSON.stringify({ set: { id: c.setId, name: c.setName } }),
+        $at: new Date(now + i).toISOString(),
+      }));
+      stmt.free();
+      this.db.run('COMMIT');
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
+    }
+    this.save();
+    return id;
+  }
+
+  // Borra la colección, no las cartas que tienes: siguen marcadas en sus sets.
+  deleteCustomCollection(id) {
+    if (!this.get('SELECT 1 AS ok FROM collections WHERE id = $id AND custom = 1', { id })) return;
+    for (const table of ['cards', 'hidden_cards', 'collection_notes']) {
+      this.db.run(`DELETE FROM ${table} WHERE collection_id = $id`, { $id: id });
+    }
+    this.db.run('DELETE FROM collections WHERE id = $id', { $id: id });
+    this.save();
+  }
+
+  // ---------- Sets de TCGdex ----------
+
+  hasSets() {
+    return this.get(`SELECT COUNT(*) AS n FROM collections WHERE id LIKE 'pkm-set-%'`).n > 0;
+  }
+
+  // Guarda la lista de sets (sin sus cartas: se descargan al abrir cada set).
+  replaceSets(sets) {
+    const stmt = this.db.prepare(
+      `INSERT INTO collections (id, tcg, name, set_id, sort_order, serie_name, release_date, logo, card_total)
+       VALUES ($id, 'pokemon', $name, $set_id, 100, $serie, $date, $logo, $total)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, serie_name = excluded.serie_name,
+         release_date = excluded.release_date, logo = excluded.logo, card_total = excluded.card_total`
+    );
+    for (const x of sets) {
+      stmt.run({
+        $id: setCollectionId(x.id), $name: x.name, $set_id: x.id, $serie: x.serie?.name || null,
+        $date: x.releaseDate || null, $logo: x.logo || null, $total: x.cardCount?.total ?? null,
+      });
+    }
+    stmt.free();
+    this.linkOwnedPokedexCards();
+    this.save();
+  }
+
+  // Las cartas marcadas desde la Pokédex o el buscador se añaden a su set (aunque el set no se haya
+  // descargado todavía), para que el set cuente como "con cartas" y aparezca en la lista principal.
+  linkOwnedPokedexCards() {
+    this.db.run(
+      `INSERT OR IGNORE INTO cards (id, collection_id, set_id, local_id, name, rarity, image_url, fetched_at)
+       SELECT f.id, c.id, f.set_id, COALESCE(f.local_id, ''), f.name, f.rarity, f.image_url, f.fetched_at
+         FROM owned_cards o JOIN fullart_cards f ON f.id = o.card_id
+         JOIN collections c ON c.id = 'pkm-set-' || f.set_id
+        GROUP BY f.id`
+    );
+  }
+
+  addCardToSet(card) {
+    const cid = setCollectionId(card.setId);
+    if (!this.getCollection(cid)) return;
+    this.db.run(
+      `INSERT OR IGNORE INTO cards (id, collection_id, set_id, local_id, name, rarity, image_url, fetched_at)
+       VALUES ($id, $cid, $set_id, $local_id, $name, $rarity, $image_url, $now)`,
+      { $id: card.id, $cid: cid, $set_id: card.setId, $local_id: card.localId || '', $name: card.name,
+        $rarity: card.rarity || null, $image_url: card.image || null, $now: new Date().toISOString() }
+    );
+  }
+
+  getQuantities(cardIds) {
+    const out = {};
+    for (const id of cardIds) out[id] = this.get('SELECT quantity FROM owned_cards WHERE card_id = $id', { id })?.quantity || 0;
+    return out;
   }
 
   setHidden(collectionId, cardId, hidden) {
@@ -342,10 +463,12 @@ class Database {
   }
 }
 
+const setCollectionId = (setId) => `pkm-set-${setId}`;
+
 function prefix(obj) {
   const out = {};
   for (const [k, v] of Object.entries(obj)) out[k.startsWith('$') ? k : '$' + k] = v;
   return out;
 }
 
-module.exports = { Database };
+module.exports = { Database, setCollectionId };

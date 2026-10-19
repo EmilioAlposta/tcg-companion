@@ -95,6 +95,28 @@ async function fetchFullArtCards() {
     c.category === 'Pokemon' && !pocket.has(c.set?.id) && (c.image || c.kind === 'promo'));
 }
 
+async function graphql(query) {
+  const json = await getJson(GRAPHQL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  return json.data || {};
+}
+
+// Todos los sets del TCG (sin TCG Pocket), con su serie, fecha y nº de cartas.
+async function fetchSets() {
+  const data = await graphql(`{ sets { id name releaseDate logo serie { id name } cardCount { total } } }`);
+  return (data.sets || []).filter((s) => s.serie?.id !== 'tcgp');
+}
+
+// Busca cartas por nombre en todos los sets (TCGdex busca por "contiene", sin distinguir mayúsculas).
+async function searchCards(name) {
+  const data = await graphql(`{ cards(filters: {name: ${JSON.stringify(name)}}) {
+    id localId name image rarity set { id name } } }`);
+  return (data.cards || []).map((c) => ({ ...c, rarity: c.rarity === 'None' ? null : c.rarity }));
+}
+
 // Precio de mercado de una carta: TCGplayer (USD) si existe, si no Cardmarket (EUR).
 async function fetchCardPrice(cardId) {
   const card = await getJson(`${BASE}/cards/${encodeURIComponent(cardId)}`);
@@ -120,5 +142,5 @@ async function fetchTcgplayerProductId(cardId) {
 }
 
 module.exports = {
-  fetchSetCards, fetchPokedex, fetchFullArtCards, fetchCardPrice, fetchTcgplayerProductId, mapLimit, FULL_ART_RARITIES,
+  fetchSetCards, fetchSets, searchCards, fetchPokedex, fetchFullArtCards, fetchCardPrice, fetchTcgplayerProductId, mapLimit, FULL_ART_RARITIES,
 };
