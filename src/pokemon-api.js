@@ -18,7 +18,7 @@ const FULL_ART_RARITIES = [
 
 async function getJson(url, init) {
   const res = await fetch(url, init);
-  if (!res.ok) throw new Error(`La API respondió ${res.status} para ${url}`);
+  if (!res.ok) throw new Error(`The API responded ${res.status} for ${url}`);
   return res.json();
 }
 
@@ -112,4 +112,13 @@ async function fetchCardPrice(cardId) {
   return { price: null, currency: null };
 }
 
-module.exports = { fetchSetCards, fetchPokedex, fetchFullArtCards, fetchCardPrice, mapLimit, FULL_ART_RARITIES };
+// Id de producto de TCGplayer de una carta (null si TCGdex todavía no lo tiene).
+async function fetchTcgplayerProductId(cardId) {
+  const card = await getJson(`${BASE}/cards/${encodeURIComponent(cardId)}`);
+  const variants = Object.values(card.pricing?.tcgplayer || {}).filter((v) => v && typeof v === 'object');
+  return variants.find((v) => v.productId)?.productId ?? null;
+}
+
+module.exports = {
+  fetchSetCards, fetchPokedex, fetchFullArtCards, fetchCardPrice, fetchTcgplayerProductId, mapLimit, FULL_ART_RARITIES,
+};

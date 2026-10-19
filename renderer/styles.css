@@ -96,7 +96,9 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 }
 .collection-header .title { margin-bottom: 4px; }
 .counter { color: var(--muted); }
-.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+/* Dos filas: arriba los botones (notas, actualizar), abajo búsqueda y filtros */
+.toolbar { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.toolbar-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .chips { display: flex; gap: 6px; }
 .chip {
   background: var(--panel); border: 1px solid #ffffff22; border-radius: 999px;
@@ -107,6 +109,9 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
   background: var(--blue); border: none; border-radius: 8px; padding: 8px 14px; font-weight: 600;
 }
 .btn:hover { filter: brightness(1.15); }
+/* Misma forma que .btn, en un tono menos llamativo para acciones secundarias */
+.btn-secondary { background: var(--panel-2); box-shadow: inset 0 0 0 1px #ffffff2e; }
+.btn-secondary:hover { filter: none; background: #26406a; }
 .hint { font-size: 13px; margin: 14px 0; }
 
 .card-grid {
@@ -218,3 +223,62 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .collection-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .collection-pct { font-size: 20px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .collection-pct.complete { color: var(--ok); }
+
+/* ---------- Cartas ocultas y menú de acciones ---------- */
+.hidden-count { color: #6b7d96; }
+.card.is-hidden { opacity: .55; border-style: dashed; border-color: #ffffff33; }
+
+.card-menu-btn {
+  position: absolute; top: 42px; right: 6px;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: #000b; border: 2px solid #ffffff55;
+  opacity: 0; transition: opacity .12s, background .12s;
+}
+/* Tres puntos verticales dibujados con sombras: quedan centrados en el círculo */
+.card-menu-btn .dots {
+  width: 4px; height: 4px; border-radius: 50%; background: #fff;
+  box-shadow: 0 -6px 0 #fff, 0 6px 0 #fff;
+}
+.card:hover .card-menu-btn, .card-menu-btn.active, .card-menu-btn:focus-visible { opacity: 1; }
+.card-menu-btn:hover, .card-menu-btn.active { background: var(--blue); border-color: #fff; }
+
+.card-menu {
+  position: fixed; z-index: 20; min-width: 220px;
+  background: var(--panel-2); border: 1px solid #ffffff22; border-radius: 10px;
+  padding: 6px; box-shadow: 0 12px 30px #000a;
+}
+.card-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; border-radius: 6px;
+  padding: 8px 10px; text-align: left; font-size: 14px;
+}
+.card-menu-item:hover { background: #ffffff14; }
+.card-menu-icon { width: 18px; text-align: center; color: var(--accent); }
+
+.card-menu-sep { height: 1px; margin: 4px 6px; background: #ffffff1f; }
+
+.dialog-overlay { position: fixed; inset: 0; z-index: 30; background: #000a; display: grid; place-items: center; }
+.dialog {
+  width: 340px; background: var(--panel); border: 1px solid #ffffff22; border-radius: 14px;
+  padding: 20px; box-shadow: 0 20px 60px #000;
+}
+.dialog h3 { margin: 0 0 4px; }
+.dialog .muted { margin: 0 0 16px; font-size: 13px; }
+.dialog-label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.qty-input {
+  background: var(--bg); border: 1px solid #ffffff33; border-radius: 8px;
+  color: var(--text); padding: 8px 12px; font: inherit; font-size: 16px;
+}
+.qty-input:focus { outline: none; border-color: var(--accent); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+/* ---------- Notas del set ---------- */
+.notes-dialog { width: 520px; max-width: 90vw; }
+.dialog .notes-shortcut { margin: 0 auto 0 0; align-self: center; font-size: 12px; }
+.notes-input {
+  display: block; width: 100%; resize: vertical; min-height: 120px;
+  background: var(--bg); border: 1px solid #ffffff33; border-radius: 8px;
+  color: var(--text); padding: 8px 12px; font: inherit; font-size: 14px;
+}
+.notes-input:focus { outline: none; border-color: var(--accent); }

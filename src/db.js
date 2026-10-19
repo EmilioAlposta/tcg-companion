@@ -34,6 +34,21 @@ CREATE TABLE IF NOT EXISTS owned_cards (
   updated_at TEXT NOT NULL
 );
 
+-- Cartas ocultas de un set: no cuentan para el total ni para el porcentaje
+CREATE TABLE IF NOT EXISTS hidden_cards (
+  collection_id TEXT NOT NULL,
+  card_id       TEXT NOT NULL,
+  hidden_at     TEXT NOT NULL,
+  PRIMARY KEY (collection_id, card_id)
+);
+
+-- Notas libres del usuario sobre un set
+CREATE TABLE IF NOT EXISTS collection_notes (
+  collection_id TEXT PRIMARY KEY,
+  notes         TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
 -- Pokédex nacional (PokeAPI)
 CREATE TABLE IF NOT EXISTS pokedex (
   dex_id  INTEGER PRIMARY KEY,
@@ -70,6 +85,9 @@ CREATE TABLE IF NOT EXISTS card_prices (
 const SEED_COLLECTIONS = [
   { id: 'pkm-30th-pikachus', tcg: 'pokemon', name: '30th Celebration - Pikachus', set_id: '30th', name_filter: 'Pikachu', sort_order: 1 },
 ];
+
+// Condición SQL: la carta k no está oculta en su colección.
+const VISIBLE = `NOT EXISTS (SELECT 1 FROM hidden_cards h WHERE h.collection_id = k.collection_id AND h.card_id = k.id)`;
 
 class Database {
   constructor(filePath) {
@@ -126,23 +144,52 @@ class Database {
   getCollections(tcg) {
     return this.all(
       `SELECT c.*,
-              (SELECT COUNT(*) FROM cards k WHERE k.collection_id = c.id) AS total,
+              (SELECT COUNT(*) FROM cards k WHERE k.collection_id = c.id
+                  AND NOT ${VISIBLE}) AS hidden,
+              (SELECT COUNT(*) FROM cards k WHERE k.collection_id = c.id
+                  AND ${VISIBLE}) AS total,
               (SELECT COUNT(*) FROM cards k JOIN owned_cards o ON o.card_id = k.id
-                WHERE k.collection_id = c.id) AS owned
+                WHERE k.collection_id = c.id AND ${VISIBLE}) AS owned
          FROM collections c WHERE c.tcg = $tcg ORDER BY c.sort_order, c.name`,
       { tcg }
     );
   }
 
   getCollection(id) {
-    return this.get('SELECT * FROM collections WHERE id = $id', { id });
+    return this.get(
+      `SELECT c.*, COALESCE(n.notes, '') AS notes
+         FROM collections c LEFT JOIN collection_notes n ON n.collection_id = c.id
+        WHERE c.id = $id`,
+      { id }
+    );
+  }
+
+  // Además de los sets, guarda notas de otras vistas (p. ej. 'pokedex').
+  getNotes(collectionId) {
+    return this.get('SELECT notes FROM collection_notes WHERE collection_id = $cid', { cid: collectionId })?.notes || '';
+  }
+
+  setCollectionNotes(collectionId, notes) {
+    if (notes.trim()) {
+      this.db.run(
+        `INSERT INTO collection_notes (collection_id, notes, updated_at) VALUES ($cid, $notes, $now)
+         ON CONFLICT(collection_id) DO UPDATE SET notes = excluded.notes, updated_at = excluded.updated_at`,
+        { $cid: collectionId, $notes: notes, $now: new Date().toISOString() }
+      );
+    } else {
+      this.db.run('DELETE FROM collection_notes WHERE collection_id = $cid', { $cid: collectionId });
+    }
+    this.save();
   }
 
   getCards(collectionId) {
     return this.all(
       `SELECT k.id, k.local_id, k.name, k.rarity, k.illustrator, k.image_url,
-              COALESCE(o.quantity, 0) AS quantity
+              json_extract(k.data_json, '$.set.cardCount.official') AS set_official,
+              COALESCE(o.quantity, 0) AS quantity,
+              CASE WHEN h.card_id IS NULL THEN 0 ELSE 1 END AS hidden
          FROM cards k LEFT JOIN owned_cards o ON o.card_id = k.id
+         LEFT JOIN hidden_cards h ON h.collection_id = k.collection_id AND h.card_id = k.id
         WHERE k.collection_id = $cid
         ORDER BY k.local_id`,
       { cid: collectionId }
@@ -170,6 +217,18 @@ class Database {
     } catch (e) {
       this.db.run('ROLLBACK');
       throw e;
+    }
+    this.save();
+  }
+
+  setHidden(collectionId, cardId, hidden) {
+    if (hidden) {
+      this.db.run(
+        `INSERT OR IGNORE INTO hidden_cards (collection_id, card_id, hidden_at) VALUES ($cid, $id, $now)`,
+        { $cid: collectionId, $id: cardId, $now: new Date().toISOString() }
+      );
+    } else {
+      this.db.run('DELETE FROM hidden_cards WHERE collection_id = $cid AND card_id = $id', { $cid: collectionId, $id: cardId });
     }
     this.save();
   }
