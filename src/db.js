@@ -215,13 +215,17 @@ class Database {
               CASE WHEN h.card_id IS NULL THEN 0 ELSE 1 END AS hidden,
               k.data_json,
               CASE WHEN json_extract(k.data_json, '$.category') IS NULL AND json_extract(k.data_json, '$.card_type') IS NULL
+                        AND json_extract(k.data_json, '$.type_line') IS NULL
                    THEN (SELECT s.data_json FROM cards s WHERE s.id = k.id AND s.collection_id <> k.collection_id
                            AND (json_extract(s.data_json, '$.category') IS NOT NULL
-                                OR json_extract(s.data_json, '$.card_type') IS NOT NULL) LIMIT 1) END AS source_json
+                                OR json_extract(s.data_json, '$.card_type') IS NOT NULL
+                                OR json_extract(s.data_json, '$.type_line') IS NOT NULL) LIMIT 1) END AS source_json
          FROM cards k LEFT JOIN owned_cards o ON o.card_id = k.id
          LEFT JOIN hidden_cards h ON h.collection_id = k.collection_id AND h.card_id = k.id
         WHERE k.collection_id = $cid
         ORDER BY CASE WHEN (SELECT custom FROM collections WHERE id = $cid) = 1 THEN k.fetched_at END,
+                 -- Magic: el nº de coleccionista ordenado como número (1, 2, 10… y no 1, 10, 2)
+                 CASE WHEN k.id LIKE 'mtg-%' THEN CAST(k.local_id AS INTEGER) END,
                  k.local_id, k.id`,
       { cid: collectionId }
     ).map(({ data_json, source_json, ...card }) => {
@@ -392,7 +396,7 @@ class Database {
   }
 
   addCardToSet(card) {
-    const cid = setCollectionId(card.setId);
+    const cid = String(card.id).startsWith('mtg-') ? magicCollectionId(card.setId) : setCollectionId(card.setId);
     if (!this.getCollection(cid)) return;
     this.db.run(
       `INSERT OR IGNORE INTO cards (id, collection_id, set_id, local_id, name, rarity, image_url, fetched_at)
@@ -446,7 +450,8 @@ class Database {
   queryOnePieceCards(where, params) {
     return this.all(
       `SELECT k.id, k.local_id, k.name, k.rarity, k.image_url, k.set_id, c.name AS set_name, k.data_json,
-              json_extract(k.data_json, '$.market_price') AS price, COALESCE(o.quantity, 0) AS quantity
+              json_extract(k.data_json, '$.market_price') AS price, json_extract(k.data_json, '$.inventory_price') AS inventory,
+              COALESCE(o.quantity, 0) AS quantity
          FROM cards k JOIN collections c ON c.id = k.collection_id
          LEFT JOIN owned_cards o ON o.card_id = k.id
         WHERE c.tcg = 'onepiece' AND c.custom = 0 AND ${where}
@@ -454,9 +459,38 @@ class Database {
       params
     ).map((k) => ({
       id: k.id, localId: k.local_id, name: k.name, rarity: k.rarity, image: k.image_url,
-      price: k.price, quantity: k.quantity, set: { id: k.set_id, name: k.set_name },
+      price: k.price, inventory: k.inventory, quantity: k.quantity, set: { id: k.set_id, name: k.set_name },
       attrs: cardAttrs(parseJson(k.data_json)),
     }));
+  }
+
+  // ---------- Magic (Scryfall) ----------
+
+  hasMagicSets() {
+    return this.get(`SELECT COUNT(*) AS n FROM collections WHERE id LIKE 'mtg-set-%'`).n > 0;
+  }
+
+  // Guarda la lista de sets (sin sus cartas: se descargan al abrir cada set, como en Pokémon).
+  // sort_order agrupa por tipo de set (expansiones, core sets, masters…); dentro de cada tipo, del más nuevo al más antiguo.
+  replaceMagicSets(sets) {
+    const stmt = this.db.prepare(
+      `INSERT INTO collections (id, tcg, name, set_id, sort_order, serie_name, release_date, logo, card_total)
+       VALUES ($id, 'magic', $name, $set_id, $order, $serie, $date, $logo, $total)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order, serie_name = excluded.serie_name,
+         release_date = excluded.release_date, logo = excluded.logo, card_total = excluded.card_total`
+    );
+    for (const s of sets) {
+      stmt.run({ $id: magicCollectionId(s.id), $name: s.name, $set_id: s.id, $order: 100 + s.rank, $serie: s.serie,
+        $date: s.releaseDate, $logo: s.logo, $total: s.total });
+    }
+    stmt.free();
+    this.save();
+  }
+
+  // Datos guardados de una carta (de cualquier colección), p. ej. para los enlaces externos.
+  getCardData(cardId) {
+    return parseJson(this.get(`SELECT data_json FROM cards WHERE id = $id AND json_extract(data_json, '$.type_line') IS NOT NULL
+                                 LIMIT 1`, { id: cardId })?.data_json);
   }
 
   getQuantities(cardIds) {
@@ -592,6 +626,7 @@ class Database {
 
 const setCollectionId = (setId) => `pkm-set-${setId}`;
 const onePieceCollectionId = (setId) => `op-set-${setId}`;
+const magicCollectionId = (setCode) => `mtg-set-${setCode}`;
 
 function parseJson(text) {
   try {
@@ -607,4 +642,4 @@ function prefix(obj) {
   return out;
 }
 
-module.exports = { Database, setCollectionId };
+module.exports = { Database, setCollectionId, magicCollectionId };

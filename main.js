@@ -1,9 +1,14 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
-const { Database, setCollectionId } = require('./src/db');
+const { Database, setCollectionId, magicCollectionId } = require('./src/db');
 const { fetchSetCards, fetchSets, searchCards, fetchTcgplayerProductId } = require('./src/pokemon-api');
 const { syncPokedex, refreshPrices } = require('./src/pokedex-sync');
 const onePiece = require('./src/onepiece-api');
+const magic = require('./src/magic-api');
+const { cardAttrs, cardVariants } = require('./src/card-attrs');
+const { cardPrices } = require('./src/prices');
+
+const TCG_IDS = ['pokemon', 'onepiece', 'magic'];
 
 let db;
 
@@ -29,10 +34,24 @@ function createWindow() {
 async function syncCollection(collectionId) {
   const col = db.getCollection(collectionId);
   if (!col) throw new Error(`Unknown collection: ${collectionId}`);
-  const cards = col.tcg === 'onepiece'
-    ? await onePiece.fetchSetCards(col.set_id)
+  const cards = col.tcg === 'onepiece' ? await onePiece.fetchSetCards(col.set_id)
+    : col.tcg === 'magic' ? await magic.fetchSetCards(col.set_id)
     : await fetchSetCards(col.set_id, col.name_filter);
   db.replaceCards(collectionId, cards);
+}
+
+async function ensureMagicSets() {
+  if (!db.hasMagicSets()) db.replaceMagicSets(await magic.fetchSets());
+}
+
+// Cartas de Scryfall (buscador o artes) de sets conocidos, con lo que tienes de cada una y sus atributos y versiones.
+async function withMagicOwnership(found) {
+  await ensureMagicSets();
+  const cards = found.filter((c) => db.getCollection(magicCollectionId(c.set.id)));
+  const qty = db.getQuantities(cards.map((c) => c.id));
+  return cards.map((c) => db.withVariantQuantities({
+    ...c, price: c.market_price ?? null, quantity: qty[c.id], attrs: cardAttrs(c), variants: cardVariants(c),
+  }));
 }
 
 // Busca en TCGdex, se queda con las cartas de sets conocidos (y que pasen `keep`) y las ordena del set más nuevo al más antiguo.
@@ -63,6 +82,13 @@ function registerIpc() {
         if (refreshSets || !db.hasOnePieceSets()) throw err;
       }
     }
+    if (tcg === 'magic' && (refreshSets || !db.hasMagicSets())) {
+      try {
+        db.replaceMagicSets(await magic.fetchSets());
+      } catch (err) {
+        if (refreshSets || !db.hasMagicSets()) throw err;
+      }
+    }
     return db.getCollections(tcg);
   });
   ipcMain.handle('collection:get', async (_e, id, { refresh = false } = {}) => {
@@ -75,7 +101,7 @@ function registerIpc() {
   ipcMain.handle('custom:save', (_e, draft) => {
     const name = String(draft?.name ?? '').trim();
     if (!name) throw new Error('The collection needs a name');
-    const tcg = draft.tcg === 'onepiece' ? 'onepiece' : 'pokemon';
+    const tcg = TCG_IDS.includes(draft.tcg) ? draft.tcg : 'pokemon';
     return db.saveCustomCollection({ id: draft.id || null, tcg, name, cards: Array.isArray(draft.cards) ? draft.cards : [] });
   });
   ipcMain.handle('custom:delete', (_e, id) => {
@@ -110,17 +136,21 @@ function registerIpc() {
       if (!db.hasOnePieceSets()) db.replaceOnePieceCatalog(await onePiece.fetchCatalog());
       return db.searchOnePieceCards(name);
     }
+    if (tcg === 'magic') return withMagicOwnership(await magic.searchCards(name));
     return searchPokemonCards(name);
   });
   // Artes de una carta: en One Piece, el mismo código en todos los sets;
-  // en Pokémon, las cartas con el mismo nombre, HP, habilidades y ataques (ver printKey).
+  // en Pokémon, las cartas con el mismo nombre, HP, habilidades y ataques (ver printKey); en Magic, el mismo nombre exacto.
   ipcMain.handle('card:printings', async (_e, { id, name, localId, tcg }) => {
     if (tcg === 'onepiece') return db.onePiecePrintings(localId);
+    if (tcg === 'magic') return withMagicOwnership(await magic.fetchPrintings(name));
     const exact = String(name).toLowerCase();
     const sameName = await searchPokemonCards(name, (c) => c.name.toLowerCase() === exact);
     const key = sameName.find((c) => c.id === id)?.printKey;
     return key ? sameName.filter((c) => c.printKey === key) : sameName;
   });
+  // Precios actuales de las versiones de una carta (diálogo "View price").
+  ipcMain.handle('card:prices', (_e, card) => cardPrices(db, card));
   ipcMain.handle('db:reveal', () => shell.showItemInFolder(db.filePath));
   ipcMain.handle('card:setHidden', (_e, collectionId, cardId, hidden) => {
     db.setHidden(collectionId, cardId, !!hidden);
@@ -132,17 +162,36 @@ function registerIpc() {
     return shell.openExternal(`https://www.tcgcollector.com/cards/intl?cardSearch=${encodeURIComponent(query)}`);
   });
   // TCGplayer: ficha del producto si TCGdex conoce su id; si no, su buscador con "Nombre nº/total".
-  ipcMain.handle('card:openTcgplayer', async (_e, { id, name, localId, official, tcg }) => {
+  ipcMain.handle('card:openTcgplayer', async (_e, { id, name, localId, official, tcg, tcgplayerId }) => {
     if (tcg === 'onepiece') {
       // OPTCG API no da el id de producto: buscamos por el código de la carta (OP01-001).
       return shell.openExternal('https://www.tcgplayer.com/search/one-piece-card-game/product'
         + `?productLineName=one-piece-card-game&q=${encodeURIComponent(localId || name)}`);
+    }
+    if (tcg === 'magic') {
+      const productId = tcgplayerId || db.getCardData(id)?.tcgplayer_id;
+      return shell.openExternal(productId
+        ? `https://www.tcgplayer.com/product/${productId}`
+        : `https://www.tcgplayer.com/search/magic/product?productLineName=magic&q=${encodeURIComponent(name)}`);
     }
     const productId = await fetchTcgplayerProductId(id).catch(() => null);
     const query = official ? `${name} ${localId}/${official}` : `${name} ${localId}`;
     return shell.openExternal(productId
       ? `https://www.tcgplayer.com/product/${productId}`
       : `https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&q=${encodeURIComponent(query)}`);
+  });
+  // Scryfall: ficha de la carta si está guardada; si no, su buscador por nombre exacto.
+  ipcMain.handle('card:openScryfall', (_e, { id, name, scryfallUri }) => {
+    const uri = scryfallUri || db.getCardData(id)?.scryfall_uri;
+    return shell.openExternal(uri || `https://scryfall.com/search?q=${encodeURIComponent(`!"${name}"`)}&unique=prints`);
+  });
+  // Moxfield no usa los ids de Scryfall: buscamos por nombre exacto, set y nº de coleccionista,
+  // y como solo hay un resultado, Moxfield abre directamente la ficha de esa impresión.
+  // En las cartas de dos caras se busca por la primera ("A // B" no da resultados).
+  ipcMain.handle('card:openMoxfield', (_e, { name, localId, setId }) => {
+    const query = [`!"${String(name).split(' // ')[0]}"`, setId && `set:${setId}`, localId && `cn:${localId}`]
+      .filter(Boolean).join(' ');
+    return shell.openExternal(`https://moxfield.com/search/cards?q=${encodeURIComponent(query)}`);
   });
 
   ipcMain.handle('pokedex:stats', () => (db.isPokedexSynced() ? db.getPokedexStats() : null));

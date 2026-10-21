@@ -72,4 +72,10 @@ async function fetchSetCards(setId) {
   return toCards(await getJson(url), setId);
 }
 
-module.exports = { fetchCatalog, fetchSetCards };
+// Todas las versiones de un código de carta (OP01-001) con su precio actual, sin convertir.
+async function fetchCardVersions(code) {
+  const kind = /^ST/.test(code) ? 'decks' : /^P-/.test(code) ? 'promos' : 'sets';
+  return getJson(`${BASE}/${kind}/card/${encodeURIComponent(code)}/`);
+}
+
+module.exports = { fetchCatalog, fetchSetCards, fetchCardVersions };

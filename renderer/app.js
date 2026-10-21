@@ -1,6 +1,6 @@
 // Navegación simple entre vistas: home -> tcg -> colección
 const TCGS = [
-  { id: 'magic', name: 'Magic: The Gathering', image: '../assets/tcg/magic.svg', enabled: false },
+  { id: 'magic', name: 'Magic: The Gathering', image: '../assets/tcg/magic.svg', enabled: true, example: 'Lightning Bolt', source: 'Scryfall' },
   { id: 'pokemon', name: 'Pokémon', image: '../assets/tcg/pokemon.svg', enabled: true, example: 'Charizard', source: 'TCGdex' },
   { id: 'onepiece', name: 'One Piece', image: '../assets/tcg/onepiece.svg', enabled: true, example: 'Luffy', source: 'OPTCG API' },
 ];
@@ -50,8 +50,10 @@ function el(tag, attrs = {}, ...children) {
 }
 
 // TCGdex da la ruta base de la imagen (se elige la calidad); OPTCG API, la URL completa del .jpg.
+// Scryfall da la URL de la imagen "normal" (con ?versión al final); en grande se pide la "large".
 function cardImage(url, quality = 'low') {
   if (!url) return '';
+  if (url.startsWith('https://cards.scryfall.io/')) return quality === 'high' ? url.replace('/normal/', '/large/') : url;
   return /\.(jpe?g|png|webp)$/i.test(url) ? url : `${url}/${quality}.webp`;
 }
 
@@ -181,7 +183,7 @@ function cardSearch(tcg, onChange) {
           { id: c.id, setId: c.set.id, localId: c.localId, name: c.name, rarity: c.rarity, image: c.image });
         render();
         onChange?.();
-      }, [c.set.name, c.rarity || '', c.price != null ? formatPrice(c) : null].filter((l) => l != null))));
+      }, [c.set.name, c.rarity || ''])));
       if (cards.length && !list.length) grid.append(el('p', { class: 'muted' }, 'No cards match these filters.'));
     };
     render();
@@ -264,7 +266,9 @@ function setTile(c, onClick) {
   const owned = c.owned > 0;
   return el('button', { class: 'set-tile' + (owned ? ' has-cards' : ''), onclick: onClick },
     el('div', { class: 'set-logo' },
-      c.logo ? el('img', { src: `${c.logo}.webp`, alt: '', loading: 'lazy' })
+      // Scryfall da el símbolo del set en SVG negro: se muestra en blanco (ver .mtg-symbol).
+      c.logo && c.tcg === 'magic' ? el('img', { class: 'mtg-symbol', src: c.logo, alt: '', loading: 'lazy' })
+        : c.logo ? el('img', { src: `${c.logo}.webp`, alt: '', loading: 'lazy' })
         : c.tcg === 'onepiece' ? el('span', { class: 'set-code' }, c.set_id) : el('span', {}, 'No logo')),
     el('div', { class: 'set-name' }, c.name),
     el('div', { class: 'collection-meta' },
@@ -301,22 +305,27 @@ function progressBar(owned, total) {
 // single: en el diálogo solo se puede elegir una opción.
 const FILTER_GROUPS = [
   { key: 'type', label: 'Card type', get: (c) => c.attrs?.type,
-    order: ['Pokémon', 'Trainer', 'Energy', 'Leader', 'Character', 'Event', 'Stage'] },
+    order: ['Pokémon', 'Trainer', 'Energy', 'Leader', 'Character', 'Event', 'Stage',
+      'Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Kindred', 'Land', 'Token', 'Emblem'] },
   { key: 'subtype', label: 'Trainer / Energy type', get: (c) => c.attrs?.subtype,
     order: ['Item', 'Supporter', 'Stadium', 'Tool', 'Basic Energy', 'Special Energy'] },
+  // Magic: Legendary, Basic, Snow…
+  { key: 'supertype', label: 'Supertype', get: (c) => c.attrs?.supertype, order: ['Legendary', 'Basic', 'Snow', 'World'] },
   { key: 'color', label: (tcg) => (tcg.id === 'pokemon' ? 'Pokémon type' : 'Color'), get: (c) => c.attrs?.colors,
-    order: ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Fairy', 'Dragon', 'Colorless',
-      'Red', 'Green', 'Blue', 'Purple', 'Black', 'Yellow'] },
+    order: (tcg) => (tcg.id === 'magic' ? ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless']
+      : ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Fairy', 'Dragon', 'Colorless',
+        'Red', 'Green', 'Blue', 'Purple', 'Black', 'Yellow']) },
   { key: 'rarity', label: 'Rarity', get: (c) => c.rarity,
     display: (v, tcg) => (tcg.id === 'onepiece' && OP_RARITIES[v]) || v,
-    order: ['Common', 'Uncommon', 'Rare', 'Holo Rare', 'Rare Holo', 'Double rare', 'ACE SPEC Rare', 'Ultra Rare',
-      'Illustration rare', 'Special illustration rare', 'Shiny rare', 'Shiny Ultra Rare', 'Hyper rare', 'Secret Rare', 'Promo',
-      'L', 'C', 'UC', 'R', 'SR', 'SEC', 'SP', 'TR', 'PR'] },
+    order: ['Common', 'Uncommon', 'Rare', 'Mythic Rare', 'Holo Rare', 'Rare Holo', 'Double rare', 'ACE SPEC Rare', 'Ultra Rare',
+      'Illustration rare', 'Special illustration rare', 'Shiny rare', 'Shiny Ultra Rare', 'Hyper rare', 'Secret Rare',
+      'Special', 'Bonus', 'Promo', 'L', 'C', 'UC', 'R', 'SR', 'SEC', 'SP', 'TR', 'PR'] },
   { key: 'stage', label: 'Stage', get: (c) => c.attrs?.stage, order: ['Basic', 'Stage 1', 'Stage 2'] },
   { key: 'mechanic', label: 'Mechanic', get: (c) => c.attrs?.mechanic, order: ['ex', 'EX', 'GX', 'V', 'VMAX', 'VSTAR'] },
   { key: 'attribute', label: 'Attribute', get: (c) => c.attrs?.attributes, order: ['Slash', 'Strike', 'Ranged', 'Special', 'Wisdom'] },
   { key: 'version', label: 'Version', get: (c) => c.attrs?.version, single: true, order: ['Standard', 'Alternate art'] },
-  // Los sets se dejan en el orden en que llegan las cartas (del más nuevo al más antiguo).
+  { key: 'treatment', label: 'Frame / Art', get: (c) => c.attrs?.treatment,
+    order: ['Regular', 'Borderless', 'Showcase', 'Extended art', 'Full art', 'Old frame', 'Promo'] },  // Los sets se dejan en el orden en que llegan las cartas (del más nuevo al más antiguo).
   { key: 'set', label: 'Set', get: (c) => c.set_name || c.setName || c.set?.name, keepOrder: true },
 ];
 const OWNED_STATUS = [['owned', 'Owned'], ['missing', 'Not owned']];
@@ -352,10 +361,11 @@ function filterCards(cards, state) {
   });
 }
 
-function groupOptions(g, cards, picked) {
+function groupOptions(g, cards, picked, tcg) {
   const values = [...new Set([...cards.flatMap((c) => valuesOf(g, c)), ...picked])];
   if (g.keepOrder) return values;
-  const rank = (v) => { const i = g.order ? g.order.indexOf(v) : -1; return i < 0 ? Infinity : i; };
+  const order = typeof g.order === 'function' ? g.order(tcg) : g.order;
+  const rank = (v) => { const i = order ? order.indexOf(v) : -1; return i < 0 ? Infinity : i; };
   return values.sort((a, b) => (rank(a) - rank(b)) || a.localeCompare(b));
 }
 
@@ -497,7 +507,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
       closePanel();
       const groups = FILTER_GROUPS.map((g) => {
         const picked = () => draft.values[g.key] || [];
-        const options = groupOptions(g, cards, picked());
+        const options = groupOptions(g, cards, picked(), tcg);
         if (options.length < 2 && !picked().length) return null; // una sola opción no filtra nada
         return dropdown(groupLabel(g, tcg), options.map((v) => [v, valueLabel(g, v, tcg)]), g.single, picked, (v) => {
           const now = picked();
@@ -651,8 +661,8 @@ async function showCollection(tcg, collectionId, opts = {}) {
     // Con más de una copia el clic no hace nada, para no perder la cantidad por error: se cambia desde ⋮.
     setChildren(grid, ...list.map((card) => cardTile(card, () => {
       if (card.quantity <= 1) setQuantity(card, card.quantity ? 0 : 1);
-    }, [collection.custom ? card.set_name || card.set_id : null, card.rarity || '', qtyLabel(card),
-      card.price != null ? formatPrice(card) : null].filter((l) => l != null), () => menuFor(card))));
+    }, [collection.custom ? card.set_name || card.set_id : null, card.rarity || '', qtyLabel(card)].filter((l) => l != null),
+    () => menuFor(card))));
     if (!list.length) grid.append(el('p', { class: 'muted' }, !cards.length && collection.custom
       ? 'This collection has no cards yet. Use Edit Collection to add some.' : 'No cards match this filter.'));
   };
@@ -953,7 +963,8 @@ function qtyLabel(card) {
 // onPrintingsChange({ cardId: cantidad }) recibe las cantidades cambiadas desde el diálogo de artes;
 // setVariant(versión, n) guarda las copias de una versión (solo se usa si la carta tiene varias versiones).
 function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange, setVariant) {
-  const link = { id: card.id, name: card.name, localId: card.local_id, official: card.set_official, tcg: tcg.id };
+  const link = { id: card.id, name: card.name, localId: card.local_id, official: card.set_official, tcg: tcg.id,
+    tcgplayerId: card.tcgplayer_id, scryfallUri: card.scryfall_uri, setId: card.set_id || card.setId || card.set?.id };
   const variants = hasVariants(card) && setVariant ? card.variants : null;
   const qty = variantQty(card);
   const main = variants ? qty[''] || 0 : card.quantity;
@@ -975,6 +986,7 @@ function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange, setVariant
     ])] : []),
     card.quantity > 1 ? { label: `Remove all (${card.quantity})`, icon: '×', onClick: () => setQuantity(0) } : null,
     { separator: true },
+    { label: 'View price', icon: '$', onClick: () => showPrices(tcg, card) },
     {
       label: 'View all arts', icon: '❐',
       onClick: async () => {
@@ -983,6 +995,8 @@ function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange, setVariant
       },
     },
     tcg.id === 'pokemon' ? { label: 'View on TCG Collector', icon: '↗', onClick: () => window.tcg.openTcgCollector(link) } : null,
+    tcg.id === 'magic' ? { label: 'View on Scryfall', icon: '↗', onClick: () => window.tcg.openScryfall(link) } : null,
+    tcg.id === 'magic' ? { label: 'View on Moxfield', icon: '↗', onClick: () => window.tcg.openMoxfield(link) } : null,
     { label: 'View on TCGplayer', icon: '↗', onClick: () => window.tcg.openTcgplayer(link) },
   ];
 }
@@ -1068,7 +1082,7 @@ function showPrintings(tcg, card) {
             : undefined);
           changed[c.id] = c.quantity;
           render();
-        }, [c.set?.name || c.set_name || '', c.rarity || '', c.price != null ? formatPrice(c) : null].filter((l) => l != null));
+        }, [c.set?.name || c.set_name || '', c.rarity || '']);
         if (c.id === card.id) tile.classList.add('current');
         return tile;
       }));
@@ -1077,6 +1091,43 @@ function showPrintings(tcg, card) {
     }).catch((err) => {
       setChildren(body, el('p', { class: 'error' }, `Could not load the other arts: ${err.message || err}`));
     });
+  });
+}
+
+// ---------- Diálogo "View price" ----------
+// Precios actuales de cada versión de la carta (normal, foil, reverse, arte alternativo…), según la API de cada TCG.
+function showPrices(tcg, card) {
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const body = el('div', { class: 'printings-body' },
+    el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, 'Loading prices…')));
+  const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
+    el('div', { class: 'dialog printings-dialog prices-dialog', role: 'dialog' },
+      el('div', { class: 'printings-header' },
+        el('div', {}, el('h3', {}, 'Prices'), el('p', { class: 'muted' }, `#${card.local_id} ${card.name}`)),
+        el('button', { class: 'chip', onclick: close }, 'Close')),
+      body));
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(overlay);
+
+  const money = (p) => (p.value == null ? '—'
+    : new Intl.NumberFormat('en', { style: 'currency', currency: p.currency }).format(p.value));
+  window.tcg.getPrices({ id: card.id, tcg: tcg.id, localId: card.local_id }).then((versions) => {
+    if (!versions.length) {
+      setChildren(body, el('p', { class: 'muted' }, 'There are no prices for this card yet.'));
+      return;
+    }
+    setChildren(body, el('div', { class: 'price-list' }, versions.map((v) =>
+      el('div', { class: 'price-version' + (v.current ? ' current' : '') },
+        v.image ? el('img', { src: cardImage(v.image), alt: '', loading: 'lazy' }) : null,
+        el('div', { class: 'price-info' },
+          el('div', { class: 'price-title' }, v.title),
+          el('div', { class: 'price-sub' }, [v.subtitle, v.source].filter(Boolean).join(' · ')),
+          el('div', { class: 'price-values' }, v.prices.map((p, i) =>
+            el('div', { class: 'price-value' + (i === 0 ? ' main' : '') }, p.label, el('strong', {}, money(p))))))))),
+      versions.some((v) => v.current) ? el('p', { class: 'muted hint' }, 'The highlighted one is this card.') : null);
+  }).catch((err) => {
+    setChildren(body, el('p', { class: 'error' }, `Could not load the prices: ${err.message || err}`));
   });
 }
 

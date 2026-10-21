@@ -160,6 +160,12 @@ async function fetchTcgplayerProductId(cardId) {
   return variants.find((v) => v.productId)?.productId ?? null;
 }
 
+// Precios de TCGplayer y Cardmarket de una carta, tal como los da TCGdex (null si no tiene).
+async function fetchCardPricing(cardId) {
+  return (await getJson(`${BASE}/cards/${encodeURIComponent(cardId)}`)).pricing || null;
+}
+
 module.exports = {
-  fetchSetCards, fetchSets, searchCards, fetchPokedex, fetchFullArtCards, fetchCardPrice, fetchTcgplayerProductId, mapLimit, FULL_ART_RARITIES,
+  fetchSetCards, fetchSets, searchCards, fetchPokedex, fetchFullArtCards, fetchCardPrice, fetchCardPricing, fetchTcgplayerProductId,
+  mapLimit, FULL_ART_RARITIES,
 };

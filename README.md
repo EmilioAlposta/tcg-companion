@@ -25,7 +25,7 @@
 | TCG | Estado |
 |---|---|
 | Pokémon | ✅ Disponible |
-| Magic: The Gathering | 🔜 Próximamente |
+| Magic: The Gathering | ✅ Disponible |
 | One Piece | ✅ Disponible |
 
 ### Pokémon
@@ -43,9 +43,24 @@
 ### One Piece
 
 - **Todos los sets.** Booster packs, extra boosters, premium boosters, starter decks y una colección con todas las promos, con sus variantes (Parallel, Alternate Art, Manga, SP…).
-- **Precio de mercado** de cada carta (TCGplayer, en USD).
 - **Buscador de cartas** en todos los sets y **colecciones custom**, igual que en Pokémon.
 - El catálogo completo (unas 5.000 cartas) se descarga la primera vez que entras, en pocos segundos, así que el buscador funciona sin conexión.
+
+### Magic: The Gathering
+
+- **Todos los sets en papel** (sin los exclusivos de MTG Arena / MTGO), agrupados por tipo: expansiones, core sets, Masters, Commander, promos, tokens…
+- Cada set se descarga al abrirlo por primera vez y queda guardado para usarlo sin conexión.
+- **Versiones por acabado:** de cada carta se cuentan aparte las copias normales, foil y etched foil (desde el menú ⋮).
+- Enlaces a **Scryfall**, **Moxfield** y **TCGplayer**, y *View all arts* con todas las impresiones de la carta.
+- **Buscador de cartas** en todos los sets y **colecciones custom**, igual que en Pokémon y One Piece.
+
+### Precios
+
+Los precios no se muestran debajo de las cartas. En el menú ⋮ de cualquier carta, **View price** abre un diálogo con los precios actuales de cada versión:
+
+- **Pokémon:** TCGplayer (Market, Low, Mid, High en USD) por versión (Normal, Holofoil, Reverse Holofoil…) y Cardmarket (en EUR) para la normal y la holo / reverse.
+- **Magic:** TCGplayer (USD) y Cardmarket (EUR) de cada acabado: Non-foil, Foil y Etched foil.
+- **One Piece:** TCGplayer (precio de mercado y listado más barato, en USD) de todas las versiones de la carta (normal, Parallel, arte alternativo, promos…).
 
 ### Filtros avanzados
 
@@ -56,6 +71,7 @@ En los sets, las colecciones custom y los buscadores de cartas, el botón **Filt
 - **Rareza**, **color** (tipo de energía en Pokémon) y **set**.
 - **Pokémon:** subtipo de entrenador o energía (Item, Supporter, Stadium, Tool…), fase (Basic, Stage 1, Stage 2…) y mecánica (ex, V, VMAX, GX…).
 - **One Piece:** rareza con su nombre completo (Common, Super Rare, Secret Rare…), atributo (Slash, Strike…) y versión (normal o arte alternativo).
+- **Magic:** tipo (Creature, Instant, Land… las cartas con varios tipos salen en todos), supertipo (Legendary, Basic, Snow), color (con *Multicolor* y *Colorless*) y marco / arte (Borderless, Showcase, Extended art, Full art, marco antiguo, promo).
 
 Los filtros aplicados aparecen como etiquetas que se pueden quitar una a una sin volver a abrir el diálogo.
 
@@ -101,7 +117,7 @@ Genera un instalador `.exe` en `dist/`.
 | App de escritorio | [Electron](https://www.electronjs.org/) |
 | Interfaz | HTML, CSS y JavaScript sin frameworks |
 | Base de datos | SQLite mediante [sql.js](https://sql.js.org/) (WebAssembly, no hay que compilar nada) |
-| Datos de cartas y precios | [TCGdex](https://tcgdex.dev) para Pokémon y [OPTCG API](https://optcgapi.com) para One Piece (gratuitas, sin API key) |
+| Datos de cartas y precios | [TCGdex](https://tcgdex.dev) para Pokémon, [OPTCG API](https://optcgapi.com) para One Piece y [Scryfall](https://scryfall.com/docs/api) para Magic (gratuitas, sin API key) |
 | Pokédex, nombres y sprites | [PokeAPI](https://pokeapi.co/) |
 | Iconos | `sharp` + `png-to-ico` |
 | Instalador | `electron-builder` |
@@ -116,6 +132,7 @@ Genera un instalador `.exe` en `dist/`.
 │   ├── db.js               Esquema y consultas SQLite
 │   ├── pokemon-api.js      Cliente de TCGdex y PokeAPI
 │   ├── onepiece-api.js     Cliente de OPTCG API (One Piece)
+│   ├── magic-api.js        Cliente de Scryfall (Magic: The Gathering)
 │   └── pokedex-sync.js     Sincronización de la Pokédex y precios
 ├── assets/                 Icono de la app e imágenes de cada TCG
 ├── scripts/make-icons.js   Genera icon.png / icon.ico desde el logo
@@ -160,14 +177,14 @@ Para añadir otro set de Pokémon basta con una entrada en `SEED_COLLECTIONS` (`
 
 ## Roadmap
 
-- [ ] Magic: The Gathering
+- [x] Magic: The Gathering
 - [x] One Piece Card Game
 - [ ] Más sets de Pokémon
 - [ ] Añadir a mano cartas que todavía no están en la API
 
 ## Créditos
 
-Los datos de cartas provienen de [TCGdex](https://tcgdex.dev) (Pokémon) y [OPTCG API](https://optcgapi.com) (One Piece), y los de la Pokédex de [PokeAPI](https://pokeapi.co/).
+Los datos de cartas provienen de [TCGdex](https://tcgdex.dev) (Pokémon) y [OPTCG API](https://optcgapi.com) (One Piece) y [Scryfall](https://scryfall.com) (Magic), y los de la Pokédex de [PokeAPI](https://pokeapi.co/).
 Pokémon y sus nombres son marcas de Nintendo, Creatures Inc. y GAME FREAK inc. Magic: The Gathering es marca de Wizards of the Coast. One Piece es marca de Eiichiro Oda / Shueisha / Bandai. Este proyecto no está afiliado a ninguno de ellos.
 
 ## Licencia
