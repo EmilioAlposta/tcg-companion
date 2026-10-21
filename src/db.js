@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const initSqlJs = require('sql.js');
-const { cardAttrs } = require('./card-attrs');
+const { cardAttrs, cardVariants } = require('./card-attrs');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS collections (
@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS owned_cards (
   card_id    TEXT PRIMARY KEY,
   quantity   INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL
+);
+
+-- Copias de las versiones que no son la principal (reverse holo, con sello…). owned_cards.quantity es el
+-- total; las copias de la versión principal son el total menos las de esta tabla.
+CREATE TABLE IF NOT EXISTS owned_variants (
+  card_id    TEXT NOT NULL,
+  variant    TEXT NOT NULL,
+  quantity   INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (card_id, variant)
 );
 
 -- Cartas ocultas de un set: no cuentan para el total ni para el porcentaje
@@ -216,9 +226,47 @@ class Database {
       { cid: collectionId }
     ).map(({ data_json, source_json, ...card }) => {
       const own = parseJson(data_json);
-      card.attrs = own?.attrs || cardAttrs(own) || cardAttrs(parseJson(source_json));
+      const source = parseJson(source_json);
+      card.attrs = own?.attrs || cardAttrs(own) || cardAttrs(source);
+      card.variants = own?.variantList || cardVariants(own) || cardVariants(source);
       return card;
-    });
+    }).map((card) => this.withVariantQuantities(card));
+  }
+
+  // ---------- Versiones (normal, reverse holo, con sello…) ----------
+
+  // Añade a la carta variant_qty: { versión: copias } (solo las versiones que tienes; '' = la principal).
+  withVariantQuantities(card) {
+    const extras = this.all('SELECT variant, quantity FROM owned_variants WHERE card_id = $id', { id: card.id });
+    const qty = {};
+    let rest = card.quantity;
+    for (const v of extras) { qty[v.variant] = v.quantity; rest -= v.quantity; }
+    if (rest > 0) qty[''] = rest;
+    card.variant_qty = qty;
+    return card;
+  }
+
+  // Cambia las copias de una versión ('' = la principal) y recalcula el total de la carta.
+  setVariantQuantity(cardId, variant, quantity) {
+    quantity = Math.max(0, Math.floor(quantity));
+    const now = new Date().toISOString();
+    const total = this.get('SELECT quantity FROM owned_cards WHERE card_id = $id', { id: cardId })?.quantity || 0;
+    const extras = this.get('SELECT COALESCE(SUM(quantity), 0) AS n FROM owned_variants WHERE card_id = $id', { id: cardId }).n;
+    let main = total - extras;
+    if (!variant) {
+      main = quantity;
+    } else if (quantity > 0) {
+      this.db.run(
+        `INSERT INTO owned_variants (card_id, variant, quantity, updated_at) VALUES ($id, $v, $q, $now)
+         ON CONFLICT(card_id, variant) DO UPDATE SET quantity = excluded.quantity, updated_at = excluded.updated_at`,
+        { $id: cardId, $v: variant, $q: quantity, $now: now }
+      );
+    } else {
+      this.db.run('DELETE FROM owned_variants WHERE card_id = $id AND variant = $v', { $id: cardId, $v: variant });
+    }
+    const newTotal = main + this.get('SELECT COALESCE(SUM(quantity), 0) AS n FROM owned_variants WHERE card_id = $id', { id: cardId }).n;
+    this.setOwned(cardId, newTotal);
+    return newTotal;
   }
 
   replaceCards(collectionId, cards) {
@@ -283,7 +331,7 @@ class Database {
         $id: c.id, $cid: id, $set_id: c.setId || '', $local_id: c.localId || '', $name: c.name,
         $rarity: c.rarity || null, $image_url: c.image || null,
         $data_json: JSON.stringify({ set: { id: c.setId, name: c.setName }, market_price: c.price ?? undefined,
-          attrs: c.attrs || undefined }),
+          attrs: c.attrs || undefined, variantList: c.variants || undefined }),
         $at: new Date(now + i).toISOString(),
       }));
       stmt.free();
@@ -429,8 +477,11 @@ class Database {
     this.save();
   }
 
+  // quantity es el total; nunca baja de las copias de las otras versiones (sin copias, se borran todas).
   setOwned(cardId, quantity) {
     if (quantity > 0) {
+      const extras = this.get('SELECT COALESCE(SUM(quantity), 0) AS n FROM owned_variants WHERE card_id = $id', { id: cardId }).n;
+      quantity = Math.max(quantity, extras);
       this.db.run(
         `INSERT INTO owned_cards (card_id, quantity, updated_at) VALUES ($id, $q, $now)
          ON CONFLICT(card_id) DO UPDATE SET quantity = excluded.quantity, updated_at = excluded.updated_at`,
@@ -438,6 +489,7 @@ class Database {
       );
     } else {
       this.db.run('DELETE FROM owned_cards WHERE card_id = $id', { $id: cardId });
+      this.db.run('DELETE FROM owned_variants WHERE card_id = $id', { $id: cardId });
     }
     this.save();
   }

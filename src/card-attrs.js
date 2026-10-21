@@ -30,6 +30,45 @@ function cardAttrs(raw) {
   return null;
 }
 
+// Versiones impresas de una carta de Pokémon (normal, reverse holo, con sello, 1ª edición…), de TCGdex.
+// Cada una: { key, label, short }. La primera es la versión principal: la que se marca al hacer clic en la carta.
+// Devuelve null si la API no trae versiones (One Piece: allí cada versión ya es una carta distinta).
+const VARIANT_TYPES = { normal: ['Normal', 'Normal'], holo: ['Holo', 'Holo'], reverse: ['Reverse Holo', 'Reverse'] };
+
+function cardVariants(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  let list = Array.isArray(raw.variants_detailed) ? raw.variants_detailed.filter((v) => v?.type) : [];
+  // Datos antiguos (o sin detalle): solo trae qué versiones existen.
+  if (!list.length && raw.variants && typeof raw.variants === 'object') {
+    const v = raw.variants;
+    list = [
+      v.normal && { type: 'normal' }, v.holo && { type: 'holo' }, v.reverse && { type: 'reverse' },
+      v.firstEdition && { type: v.holo ? 'holo' : 'normal', stamp: ['1st-edition'] },
+      v.wPromo && { type: 'holo', stamp: ['w-promo'] },
+    ].filter(Boolean);
+  }
+  if (!list.length) return null;
+  const seen = new Set();
+  const out = [];
+  for (const v of list) {
+    const stamps = [].concat(v.stamp || []);
+    const key = [v.type, v.subtype, v.foil, ...stamps].filter(Boolean).join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [label, short] = VARIANT_TYPES[v.type] || [titleCase(v.type), titleCase(v.type)];
+    const extras = [
+      v.foil ? `${titleCase(v.foil)} foil` : null,
+      v.subtype ? titleCase(v.subtype) : null,
+      ...stamps.map((s) => (s === '1st-edition' ? '1st Edition' : s === 'w-promo' ? 'W Promo' : `${titleCase(s)} stamp`)),
+    ].filter(Boolean);
+    out.push({ key, label: [label, ...extras].join(' · '), short: [short, ...extras.map((e) => e.replace(/ (stamp|foil)$/, ''))].join(' ') });
+  }
+  return out;
+}
+
+const titleCase = (slug) => String(slug).split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  .replace(/\bPokemon\b/g, 'Pokémon');
+
 function compact(obj) {
   for (const [k, v] of Object.entries(obj)) {
     if (v == null || (Array.isArray(v) && !v.length)) delete obj[k];
@@ -37,4 +76,4 @@ function compact(obj) {
   return obj;
 }
 
-module.exports = { cardAttrs };
+module.exports = { cardAttrs, cardVariants };

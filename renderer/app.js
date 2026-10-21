@@ -602,19 +602,26 @@ async function showCollection(tcg, collectionId, opts = {}) {
   };
 
   const setQuantity = async (card, quantity) => {
-    card.quantity = Math.max(0, quantity);
+    setLocalTotal(card, quantity);
     // En una colección custom la carta también se añade a su set, para que el set cuente como "con cartas".
     await window.tcg.setOwned(card.id, card.quantity, collection.custom ? draftCard(card) : undefined);
     refreshStats();
     render();
   };
 
+  const setVariant = async (card, key, quantity) => {
+    setLocalVariant(card, key, Math.max(0, quantity));
+    await window.tcg.setVariantOwned(card.id, key, Math.max(0, quantity), collection.custom ? draftCard(card) : undefined);
+    refreshStats();
+    render();
+  };
+
   const menuFor = (card) => [
     ...quantityMenuItems(tcg, card, (q) => setQuantity(card, q), (changed) => {
-      for (const c of cards) if (changed[c.id] != null) c.quantity = changed[c.id];
+      for (const c of cards) if (changed[c.id] != null) setLocalTotal(c, changed[c.id]);
       refreshStats();
       render();
-    }),
+    }, (key, q) => setVariant(card, key, q)),
     { separator: true },
     card.hidden
       ? { label: 'Add back to set', icon: '↺', onClick: () => setHidden(card, false) }
@@ -644,7 +651,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
     // Con más de una copia el clic no hace nada, para no perder la cantidad por error: se cambia desde ⋮.
     setChildren(grid, ...list.map((card) => cardTile(card, () => {
       if (card.quantity <= 1) setQuantity(card, card.quantity ? 0 : 1);
-    }, [collection.custom ? card.set_name || card.set_id : null, card.rarity || '', `Quantity: ${card.quantity}`,
+    }, [collection.custom ? card.set_name || card.set_id : null, card.rarity || '', qtyLabel(card),
       card.price != null ? formatPrice(card) : null].filter((l) => l != null), () => menuFor(card))));
     if (!list.length) grid.append(el('p', { class: 'muted' }, !cards.length && collection.custom
       ? 'This collection has no cards yet. Use Edit Collection to add some.' : 'No cards match this filter.'));
@@ -715,7 +722,7 @@ function editNotes(collection) {
 function draftCard(card) {
   return {
     id: card.id, setId: card.set_id, setName: card.set_name, localId: card.local_id,
-    name: card.name, rarity: card.rarity, image: card.image_url, price: card.price, attrs: card.attrs,
+    name: card.name, rarity: card.rarity, image: card.image_url, price: card.price, attrs: card.attrs, variants: card.variants,
   };
 }
 
@@ -728,18 +735,27 @@ async function showCollectionEditor(tcg, collectionId) {
     setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, 'Loading collection…')));
     const { collection, cards } = await window.tcg.getCollection(collectionId);
     draft.name = collection.name;
-    draft.cards = cards.map((c) => ({ ...draftCard(c), quantity: c.quantity }));
+    draft.cards = cards.map((c) => ({ ...draftCard(c), quantity: c.quantity, variant_qty: c.variant_qty }));
   }
 
   const tile = (c) => ({ ...c, image_url: c.image, local_id: c.localId });
   const included = () => new Set(draft.cards.map((c) => c.id));
 
   // Las cantidades se guardan al momento (son globales, igual que en los sets).
-  const setQuantity = async (c, quantity) => {
-    c.quantity = Math.max(0, quantity);
-    await window.tcg.setOwned(c.id, c.quantity, c);
-    for (const r of [...results, ...draft.cards]) if (r.id === c.id) r.quantity = c.quantity;
+  // La misma carta puede estar en los resultados y en la colección: se copian las cantidades a las dos.
+  const syncCopies = (c) => {
+    for (const r of [...results, ...draft.cards]) if (r.id === c.id) { r.quantity = c.quantity; r.variant_qty = c.variant_qty; }
     renderAll();
+  };
+  const setQuantity = async (c, quantity) => {
+    setLocalTotal(c, quantity);
+    await window.tcg.setOwned(c.id, c.quantity, c);
+    syncCopies(c);
+  };
+  const setVariant = async (c, key, quantity) => {
+    setLocalVariant(c, key, Math.max(0, quantity));
+    await window.tcg.setVariantOwned(c.id, key, Math.max(0, quantity), c);
+    syncCopies(c);
   };
   const toggleOwned = (c) => {
     if (c.quantity > 1) return; // con varias copias, la cantidad se cambia desde ⋮
@@ -747,9 +763,9 @@ async function showCollectionEditor(tcg, collectionId) {
   };
   const menuFor = (c) => [
     ...quantityMenuItems(tcg, tile(c), (q) => setQuantity(c, q), (changed) => {
-      for (const r of [...results, ...draft.cards]) if (changed[r.id] != null) r.quantity = changed[r.id];
+      for (const r of [...results, ...draft.cards]) if (changed[r.id] != null) setLocalTotal(r, changed[r.id]);
       renderAll();
-    }),
+    }, (key, q) => setVariant(c, key, q)),
     { separator: true },
     { label: 'Remove from collection', icon: '×', onClick: () => toggleIncluded(c) },
   ];
@@ -764,7 +780,7 @@ async function showCollectionEditor(tcg, collectionId) {
   const renderSelected = () => {
     selectedTitle.textContent = `Cards in this collection (${draft.cards.length})`;
     setChildren(selectedGrid, ...draft.cards.map((c) => cardTile(tile(c), () => toggleOwned(c),
-      [c.setName || c.setId, c.rarity || '', `Quantity: ${c.quantity || 0}`], () => menuFor(c))));
+      [c.setName || c.setId, c.rarity || '', qtyLabel(c)], () => menuFor(c))));
     if (!draft.cards.length) selectedGrid.append(el('p', { class: 'muted' }, 'No cards yet. Search above to add some.'));
   };
 
@@ -793,7 +809,7 @@ async function showCollectionEditor(tcg, collectionId) {
       el('div', { class: 'card-info' },
         el('div', { class: 'card-name' }, `#${c.localId} ${c.name}`),
         el('div', { class: 'card-sub' }, c.setName || ''),
-        el('div', { class: 'card-sub' }, c.quantity ? `Quantity: ${c.quantity}` : '')));
+        el('div', { class: 'card-sub' }, c.quantity ? qtyLabel(c) : '')));
   };
   const searchFilters = filterState(`editor:${tcg.id}`);
   const advanced = advancedFilter(tcg, searchFilters, { getCards: () => results, onChange: () => renderResults() });
@@ -824,6 +840,7 @@ async function showCollectionEditor(tcg, collectionId) {
       results = found.map((c) => ({
         id: c.id, setId: c.set.id, setName: c.set.name, localId: c.localId,
         name: c.name, rarity: c.rarity, image: c.image, price: c.price, quantity: c.quantity, attrs: c.attrs,
+        variants: c.variants, variant_qty: c.variant_qty,
       }));
       if (!results.length) setChildren(resultsBox, el('p', { class: 'muted' }, 'No cards found.'));
       renderResults();
@@ -898,20 +915,64 @@ function confirmDialog(title, text, okLabel) {
   });
 }
 
-// Opciones comunes del menú ⋮: cantidad, versiones y enlaces externos. setQuantity(n) guarda la nueva cantidad;
-// onPrintingsChange({ cardId: cantidad }) recibe las cantidades cambiadas desde el diálogo de versiones.
-function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange) {
+// ---------- Versiones de una carta (normal, reverse holo, con sello…) ----------
+// card.variants: versiones que existen (la primera es la principal); card.variant_qty: { versión: copias }, '' = la principal.
+const hasVariants = (card) => card.variants?.length > 1;
+const variantQty = (card) => card.variant_qty || (card.quantity ? { '': card.quantity } : {});
+const sumValues = (obj) => Object.values(obj).reduce((a, b) => a + b, 0);
+
+// Cambia en memoria las copias de una versión, igual que la base de datos (el total es la suma).
+function setLocalVariant(card, key, quantity) {
+  const qty = { ...variantQty(card) };
+  if (quantity > 0) qty[key] = quantity; else delete qty[key];
+  card.variant_qty = qty;
+  card.quantity = sumValues(qty);
+}
+
+// Cambia en memoria el total: la diferencia va a la versión principal (nunca baja de las otras versiones).
+function setLocalTotal(card, total) {
+  const qty = { ...variantQty(card) };
+  delete qty[''];
+  const extras = sumValues(qty);
+  if (total <= 0) { card.variant_qty = {}; card.quantity = 0; return; }
+  if (total > extras) qty[''] = total - extras;
+  card.variant_qty = qty;
+  card.quantity = Math.max(total, extras);
+}
+
+// Línea de cantidad bajo la carta: "Qty: 2", o por versión "Qty: 1 Normal · 2 Reverse".
+function qtyLabel(card) {
+  const qty = variantQty(card);
+  if (!hasVariants(card) || !card.quantity) return `Qty: ${card.quantity || 0}`;
+  const order = (key) => { const i = key ? card.variants.findIndex((v) => v.key === key) : 0; return i < 0 ? Infinity : i; };
+  const name = (key) => (key ? card.variants.find((v) => v.key === key)?.short || key : card.variants[0].short);
+  return 'Qty: ' + Object.keys(qty).sort((a, b) => order(a) - order(b)).map((k) => `${qty[k]} ${name(k)}`).join(' · ');
+}
+
+// Opciones comunes del menú ⋮: cantidad, versiones y enlaces externos. setQuantity(n) guarda la nueva cantidad total;
+// onPrintingsChange({ cardId: cantidad }) recibe las cantidades cambiadas desde el diálogo de artes;
+// setVariant(versión, n) guarda las copias de una versión (solo se usa si la carta tiene varias versiones).
+function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange, setVariant) {
   const link = { id: card.id, name: card.name, localId: card.local_id, official: card.set_official, tcg: tcg.id };
+  const variants = hasVariants(card) && setVariant ? card.variants : null;
+  const qty = variantQty(card);
+  const main = variants ? qty[''] || 0 : card.quantity;
+  const setMain = (n) => (variants ? setVariant('', n) : setQuantity(n));
+  const mainName = variants ? ` ${variants[0].label}` : '';
   return [
-    { label: 'Add 1', icon: '+', onClick: () => setQuantity(card.quantity + 1) },
+    { label: `Add 1${mainName}`, icon: '+', onClick: () => setMain(main + 1) },
     {
-      label: 'Add several…', icon: '++',
+      label: `Add several${mainName}…`, icon: '++',
       onClick: async () => {
-        const n = await askQuantity(card);
-        if (n) setQuantity(card.quantity + n);
+        const n = await askQuantity(card, main, variants?.[0].label);
+        if (n) setMain(main + n);
       },
     },
-    card.quantity > 0 ? { label: 'Remove 1', icon: '−', onClick: () => setQuantity(card.quantity - 1) } : null,
+    main > 0 ? { label: `Remove 1${mainName}`, icon: '−', onClick: () => setMain(main - 1) } : null,
+    ...(variants ? [{ separator: true }, ...variants.slice(1).flatMap((v) => [
+      { label: `Add 1 ${v.label}`, icon: '+', onClick: () => setVariant(v.key, (qty[v.key] || 0) + 1) },
+      qty[v.key] > 0 ? { label: `Remove 1 ${v.label} (${qty[v.key]})`, icon: '−', onClick: () => setVariant(v.key, qty[v.key] - 1) } : null,
+    ])] : []),
     card.quantity > 1 ? { label: `Remove all (${card.quantity})`, icon: '×', onClick: () => setQuantity(0) } : null,
     { separator: true },
     {
@@ -1021,7 +1082,7 @@ function showPrintings(tcg, card) {
 
 // ---------- Diálogo "Agregar varias" ----------
 // Devuelve el número elegido (1-999) o null si se cancela.
-function askQuantity(card) {
+function askQuantity(card, current = card.quantity, variantLabel = null) {
   return new Promise((resolve) => {
     const input = el('input', { class: 'qty-input', type: 'number', min: '1', max: '999', value: '2' });
     const close = (value) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
@@ -1036,7 +1097,8 @@ function askQuantity(card) {
     const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(null); } },
       el('div', { class: 'dialog', role: 'dialog' },
         el('h3', {}, 'Add several'),
-        el('p', { class: 'muted' }, `#${card.local_id} ${card.name} · you currently have ${card.quantity}`),
+        el('p', { class: 'muted' }, `#${card.local_id} ${card.name}${variantLabel ? ` (${variantLabel})` : ''}`
+          + ` · you currently have ${current}`),
         el('label', { class: 'dialog-label' }, 'How many do you want to add?', input),
         el('div', { class: 'dialog-actions' },
           el('button', { class: 'chip', onclick: () => close(null) }, 'Cancel'),

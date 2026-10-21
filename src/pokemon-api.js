@@ -1,7 +1,7 @@
 // Cliente de TCGdex (https://tcgdex.dev): API gratuita y sin API key.
 const BASE = 'https://api.tcgdex.net/v2/en';
 const GRAPHQL = 'https://api.tcgdex.net/v2/graphql';
-const { cardAttrs } = require('./card-attrs');
+const { cardAttrs, cardVariants } = require('./card-attrs');
 
 // Rarezas de TCGdex que consideramos "Full Art" (cartas de Pokémon a toda la carta).
 const FULL_ART_RARITIES = [
@@ -115,10 +115,11 @@ async function fetchSets() {
 async function searchCards(name) {
   const data = await graphql(`{ cards(filters: {name: ${JSON.stringify(name)}}) {
     id localId name image rarity category types stage suffix trainerType energyType set { id name }
-    hp attacks { name damage } abilities { name } } }`);
-  return (data.cards || []).map(({ category, types, stage, suffix, trainerType, energyType, hp, attacks, abilities, ...c }) => ({
+    hp attacks { name damage } abilities { name } variants_detailed { type subtype stamp foil } } }`);
+  return (data.cards || []).map(({ category, types, stage, suffix, trainerType, energyType, hp, attacks, abilities, variants_detailed, ...c }) => ({
     ...c, rarity: c.rarity === 'None' ? null : c.rarity,
     attrs: cardAttrs({ category, types, stage, suffix, trainerType, energyType }),
+    variants: cardVariants({ variants_detailed }),
     printKey: printKey({ name: c.name, hp, attacks, abilities }),
   }));
 }

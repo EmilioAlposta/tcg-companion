@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('tcg', {
   getNotes:(id) => ipcRenderer.invoke('notes:get', id),
   setCollectionNotes: (id, notes) => ipcRenderer.invoke('collection:setNotes', id, notes),
   setOwned: (cardId, quantity, card) => ipcRenderer.invoke('card:setOwned', cardId, quantity, card),
+  setVariantOwned: (cardId, variant, quantity, card) => ipcRenderer.invoke('card:setVariant', cardId, variant, quantity, card),
   searchCards: (name, tcg) => ipcRenderer.invoke('cards:search', name, tcg),
   getPrintings: (card) => ipcRenderer.invoke('card:printings', card),
   setHidden: (collectionId, cardId, hidden) => ipcRenderer.invoke('card:setHidden', collectionId, cardId, hidden),

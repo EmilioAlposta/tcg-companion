@@ -42,7 +42,7 @@ async function searchPokemonCards(name, keep = () => true) {
   found.sort((a, b) => (sets[b.set.id]?.release_date || '').localeCompare(sets[a.set.id]?.release_date || '')
     || a.localId.localeCompare(b.localId, undefined, { numeric: true }));
   const qty = db.getQuantities(found.map((c) => c.id));
-  return found.map((c) => ({ ...c, quantity: qty[c.id] }));
+  return found.map((c) => db.withVariantQuantities({ ...c, quantity: qty[c.id] }));
 }
 
 function registerIpc() {
@@ -95,6 +95,14 @@ function registerIpc() {
     }
     db.setOwned(cardId, Math.max(0, Math.floor(quantity)));
     return true;
+  });
+  // Copias de una versión concreta (variant '' = la principal). Devuelve el nuevo total de la carta.
+  ipcMain.handle('card:setVariant', (_e, cardId, variant, quantity, card) => {
+    if (quantity > 0) {
+      if (card?.setId) db.addCardToSet(card);
+      else db.linkOwnedPokedexCards();
+    }
+    return db.setVariantQuantity(cardId, String(variant || ''), Number(quantity) || 0);
   });
   ipcMain.handle('cards:search', async (_e, name, tcg) => {
     // One Piece: el catálogo entero está en la base de datos, se busca sin conexión.
