@@ -26,7 +26,7 @@
 |---|---|
 | Pokémon | ✅ Disponible |
 | Magic: The Gathering | 🔜 Próximamente |
-| One Piece | 🔜 Próximamente |
+| One Piece | ✅ Disponible |
 
 ### Pokémon
 
@@ -39,6 +39,25 @@
 - **Sets.** Por ahora está *30th Celebration - Pikachus*, con los 34 Pikachu del set 30th Celebration.
 - **Progreso.** Cada colección muestra cuántas cartas tienes y el porcentaje completado.
 - **Funciona sin conexión.** Las cartas se descargan una vez y quedan guardadas en tu equipo. El botón *Actualizar desde la API* vuelve a descargarlas cuando salen cartas nuevas, y **no borra lo que marcaste**.
+
+### One Piece
+
+- **Todos los sets.** Booster packs, extra boosters, premium boosters, starter decks y una colección con todas las promos, con sus variantes (Parallel, Alternate Art, Manga, SP…).
+- **Precio de mercado** de cada carta (TCGplayer, en USD).
+- **Buscador de cartas** en todos los sets y **colecciones custom**, igual que en Pokémon.
+- El catálogo completo (unas 5.000 cartas) se descarga la primera vez que entras, en pocos segundos, así que el buscador funciona sin conexión.
+
+### Filtros avanzados
+
+En los sets, las colecciones custom y los buscadores de cartas, el botón **Filters** abre un diálogo para filtrar por:
+
+- **Colección:** las que tienes, las que te faltan o las ocultas. Mientras no haya otros filtros, en los sets se eligen directamente con los chips *All / Owned / Not owned*.
+- **Tipo de carta:** Pokémon / Trainer / Energy, o Leader / Character / Event / Stage en One Piece.
+- **Rareza**, **color** (tipo de energía en Pokémon) y **set**.
+- **Pokémon:** subtipo de entrenador o energía (Item, Supporter, Stadium, Tool…), fase (Basic, Stage 1, Stage 2…) y mecánica (ex, V, VMAX, GX…).
+- **One Piece:** rareza con su nombre completo (Common, Super Rare, Secret Rare…), atributo (Slash, Strike…) y versión (normal o arte alternativo).
+
+Los filtros aplicados aparecen como etiquetas que se pueden quitar una a una sin volver a abrir el diálogo.
 
 ## Capturas
 
@@ -82,7 +101,7 @@ Genera un instalador `.exe` en `dist/`.
 | App de escritorio | [Electron](https://www.electronjs.org/) |
 | Interfaz | HTML, CSS y JavaScript sin frameworks |
 | Base de datos | SQLite mediante [sql.js](https://sql.js.org/) (WebAssembly, no hay que compilar nada) |
-| Datos de cartas y precios | [TCGdex](https://tcgdex.dev) (API gratuita, sin API key) |
+| Datos de cartas y precios | [TCGdex](https://tcgdex.dev) para Pokémon y [OPTCG API](https://optcgapi.com) para One Piece (gratuitas, sin API key) |
 | Pokédex, nombres y sprites | [PokeAPI](https://pokeapi.co/) |
 | Iconos | `sharp` + `png-to-ico` |
 | Instalador | `electron-builder` |
@@ -96,6 +115,7 @@ Genera un instalador `.exe` en `dist/`.
 ├── src/
 │   ├── db.js               Esquema y consultas SQLite
 │   ├── pokemon-api.js      Cliente de TCGdex y PokeAPI
+│   ├── onepiece-api.js     Cliente de OPTCG API (One Piece)
 │   └── pokedex-sync.js     Sincronización de la Pokédex y precios
 ├── assets/                 Icono de la app e imágenes de cada TCG
 ├── scripts/make-icons.js   Genera icon.png / icon.ico desde el logo
@@ -135,18 +155,19 @@ Para añadir otro set de Pokémon basta con una entrada en `SEED_COLLECTIONS` (`
 
 - Las cartas muy nuevas pueden tardar unas semanas en llegar a TCGdex. Por ejemplo, la promo MEP 101 Nidorina todavía no está.
 - Algunas promos no tienen imagen en la API. Aparecen como un recuadro con el texto "Sin imagen" y se pueden marcar igualmente.
+- Las imágenes de One Piece que da OPTCG API llevan la marca de agua "SAMPLE".
 - Si una carta no tiene precio en TCGplayer se usa el de Cardmarket. En ese caso, comparar cuál es la más cara es aproximado, porque mezcla USD y EUR.
 
 ## Roadmap
 
 - [ ] Magic: The Gathering
-- [ ] One Piece Card Game
+- [x] One Piece Card Game
 - [ ] Más sets de Pokémon
 - [ ] Añadir a mano cartas que todavía no están en la API
 
 ## Créditos
 
-Los datos de cartas provienen de [TCGdex](https://tcgdex.dev) y los de la Pokédex de [PokeAPI](https://pokeapi.co/).
+Los datos de cartas provienen de [TCGdex](https://tcgdex.dev) (Pokémon) y [OPTCG API](https://optcgapi.com) (One Piece), y los de la Pokédex de [PokeAPI](https://pokeapi.co/).
 Pokémon y sus nombres son marcas de Nintendo, Creatures Inc. y GAME FREAK inc. Magic: The Gathering es marca de Wizards of the Coast. One Piece es marca de Eiichiro Oda / Shueisha / Bandai. Este proyecto no está afiliado a ninguno de ellos.
 
 ## Licencia

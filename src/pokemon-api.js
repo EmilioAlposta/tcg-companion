@@ -1,6 +1,7 @@
 // Cliente de TCGdex (https://tcgdex.dev): API gratuita y sin API key.
 const BASE = 'https://api.tcgdex.net/v2/en';
 const GRAPHQL = 'https://api.tcgdex.net/v2/graphql';
+const { cardAttrs } = require('./card-attrs');
 
 // Rarezas de TCGdex que consideramos "Full Art" (cartas de Pokémon a toda la carta).
 const FULL_ART_RARITIES = [
@@ -113,8 +114,11 @@ async function fetchSets() {
 // Busca cartas por nombre en todos los sets (TCGdex busca por "contiene", sin distinguir mayúsculas).
 async function searchCards(name) {
   const data = await graphql(`{ cards(filters: {name: ${JSON.stringify(name)}}) {
-    id localId name image rarity set { id name } } }`);
-  return (data.cards || []).map((c) => ({ ...c, rarity: c.rarity === 'None' ? null : c.rarity }));
+    id localId name image rarity category types stage suffix trainerType energyType set { id name } } }`);
+  return (data.cards || []).map(({ category, types, stage, suffix, trainerType, energyType, ...c }) => ({
+    ...c, rarity: c.rarity === 'None' ? null : c.rarity,
+    attrs: cardAttrs({ category, types, stage, suffix, trainerType, energyType }),
+  }));
 }
 
 // Precio de mercado de una carta: TCGplayer (USD) si existe, si no Cardmarket (EUR).

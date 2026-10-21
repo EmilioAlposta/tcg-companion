@@ -3,13 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; img-src 'self' data: https://assets.tcgdex.net https://raw.githubusercontent.com; style-src 'self'; script-src 'self'" />
+        content="default-src 'self'; img-src 'self' data: https://assets.tcgdex.net https://raw.githubusercontent.com https://optcgapi.com; style-src 'self'; script-src 'self'" />
   <title>TCG Companion</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <button id="back" class="back hidden" title="Back">&larr;</button>
+    <button id="back" class="back hidden" title="Back">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path d="M19 12H5M11 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
     <img src="../assets/icon.png" class="brand-logo" alt="" />
     <div class="brand">
       <div class="brand-title">TCG Companion</div>
@@ -20,7 +24,7 @@
   <main id="view"></main>
 
   <footer class="footer">
-    <span>Card data: <strong>TCGdex</strong></span>
+    <span>Card data: <strong id="data-source">TCGdex</strong></span>
     <button id="db-path" class="link" title="Show the database in the file explorer"></button>
   </footer>
 

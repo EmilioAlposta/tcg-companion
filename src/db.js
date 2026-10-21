@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const initSqlJs = require('sql.js');
+const { cardAttrs } = require('./card-attrs');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS collections (
@@ -192,40 +193,38 @@ class Database {
     this.save();
   }
 
+  // attrs: atributos para los filtros avanzados. Las cartas de una colección custom (o las añadidas a un set
+  // sin descargar) no guardan el detalle de la API: se toma de la misma carta en otro set, si está.
   getCards(collectionId) {
     return this.all(
       `SELECT k.id, k.set_id, k.local_id, k.name, k.rarity, k.illustrator, k.image_url,
               json_extract(k.data_json, '$.set.name') AS set_name,
               json_extract(k.data_json, '$.set.cardCount.official') AS set_official,
+              json_extract(k.data_json, '$.market_price') AS price,
               COALESCE(o.quantity, 0) AS quantity,
-              CASE WHEN h.card_id IS NULL THEN 0 ELSE 1 END AS hidden
+              CASE WHEN h.card_id IS NULL THEN 0 ELSE 1 END AS hidden,
+              k.data_json,
+              CASE WHEN json_extract(k.data_json, '$.category') IS NULL AND json_extract(k.data_json, '$.card_type') IS NULL
+                   THEN (SELECT s.data_json FROM cards s WHERE s.id = k.id AND s.collection_id <> k.collection_id
+                           AND (json_extract(s.data_json, '$.category') IS NOT NULL
+                                OR json_extract(s.data_json, '$.card_type') IS NOT NULL) LIMIT 1) END AS source_json
          FROM cards k LEFT JOIN owned_cards o ON o.card_id = k.id
          LEFT JOIN hidden_cards h ON h.collection_id = k.collection_id AND h.card_id = k.id
         WHERE k.collection_id = $cid
         ORDER BY CASE WHEN (SELECT custom FROM collections WHERE id = $cid) = 1 THEN k.fetched_at END,
-                 k.local_id`,
+                 k.local_id, k.id`,
       { cid: collectionId }
-    );
+    ).map(({ data_json, source_json, ...card }) => {
+      const own = parseJson(data_json);
+      card.attrs = own?.attrs || cardAttrs(own) || cardAttrs(parseJson(source_json));
+      return card;
+    });
   }
 
   replaceCards(collectionId, cards) {
-    const now = new Date().toISOString();
     this.db.run('BEGIN');
     try {
-      this.db.run('DELETE FROM cards WHERE collection_id = $cid', { $cid: collectionId });
-      const stmt = this.db.prepare(
-        `INSERT INTO cards (id, collection_id, set_id, local_id, name, rarity, illustrator, image_url, data_json, fetched_at)
-         VALUES ($id, $cid, $set_id, $local_id, $name, $rarity, $illustrator, $image_url, $data_json, $now)`
-      );
-      for (const c of cards) {
-        stmt.run({
-          $id: c.id, $cid: collectionId, $set_id: c.set?.id || '', $local_id: c.localId,
-          $name: c.name, $rarity: c.rarity || null, $illustrator: c.illustrator || null,
-          $image_url: c.image || null, $data_json: JSON.stringify(c), $now: now,
-        });
-      }
-      stmt.free();
-      this.db.run('UPDATE collections SET synced_at = $now WHERE id = $cid', { $cid: collectionId, $now: now });
+      this.writeCards(collectionId, cards, new Date().toISOString());
       this.db.run('COMMIT');
     } catch (e) {
       this.db.run('ROLLBACK');
@@ -234,10 +233,28 @@ class Database {
     this.save();
   }
 
+  // Sustituye las cartas de una colección (sin transacción ni guardado: lo hace quien llama).
+  writeCards(collectionId, cards, now) {
+    this.db.run('DELETE FROM cards WHERE collection_id = $cid', { $cid: collectionId });
+    const stmt = this.db.prepare(
+      `INSERT OR IGNORE INTO cards (id, collection_id, set_id, local_id, name, rarity, illustrator, image_url, data_json, fetched_at)
+       VALUES ($id, $cid, $set_id, $local_id, $name, $rarity, $illustrator, $image_url, $data_json, $now)`
+    );
+    for (const c of cards) {
+      stmt.run({
+        $id: c.id, $cid: collectionId, $set_id: c.set?.id || '', $local_id: c.localId,
+        $name: c.name, $rarity: c.rarity || null, $illustrator: c.illustrator || null,
+        $image_url: c.image || null, $data_json: JSON.stringify(c), $now: now,
+      });
+    }
+    stmt.free();
+    this.db.run('UPDATE collections SET synced_at = $now WHERE id = $cid', { $cid: collectionId, $now: now });
+  }
+
   // ---------- Colecciones custom ----------
 
   // Crea (sin id) o actualiza una colección custom con su nombre y su lista de cartas. Devuelve el id.
-  saveCustomCollection({ id, name, cards }) {
+  saveCustomCollection({ id, tcg, name, cards }) {
     const now = Date.now();
     this.db.run('BEGIN');
     try {
@@ -245,8 +262,8 @@ class Database {
         id = `custom-${now.toString(36)}`;
         this.db.run(
           `INSERT INTO collections (id, tcg, name, set_id, sort_order, custom, synced_at)
-           VALUES ($id, 'pokemon', $name, '', 0, 1, $now)`,
-          { $id: id, $name: name, $now: new Date(now).toISOString() }
+           VALUES ($id, $tcg, $name, '', 0, 1, $now)`,
+          { $id: id, $tcg: tcg, $name: name, $now: new Date(now).toISOString() }
         );
       } else {
         this.db.run('UPDATE collections SET name = $name WHERE id = $id AND custom = 1', { $id: id, $name: name });
@@ -265,7 +282,8 @@ class Database {
       cards.forEach((c, i) => stmt.run({
         $id: c.id, $cid: id, $set_id: c.setId || '', $local_id: c.localId || '', $name: c.name,
         $rarity: c.rarity || null, $image_url: c.image || null,
-        $data_json: JSON.stringify({ set: { id: c.setId, name: c.setName } }),
+        $data_json: JSON.stringify({ set: { id: c.setId, name: c.setName }, market_price: c.price ?? undefined,
+          attrs: c.attrs || undefined }),
         $at: new Date(now + i).toISOString(),
       }));
       stmt.free();
@@ -334,6 +352,54 @@ class Database {
       { $id: card.id, $cid: cid, $set_id: card.setId, $local_id: card.localId || '', $name: card.name,
         $rarity: card.rarity || null, $image_url: card.image || null, $now: new Date().toISOString() }
     );
+  }
+
+  // ---------- One Piece (OPTCG API) ----------
+
+  hasOnePieceSets() {
+    return this.get(`SELECT COUNT(*) AS n FROM collections WHERE id LIKE 'op-set-%'`).n > 0;
+  }
+
+  // Guarda el catálogo completo: cada set con todas sus cartas (las cartas que tienes se conservan).
+  replaceOnePieceCatalog(sets) {
+    const now = new Date().toISOString();
+    this.db.run('BEGIN');
+    try {
+      const stmt = this.db.prepare(
+        `INSERT INTO collections (id, tcg, name, set_id, sort_order, serie_name, card_total)
+         VALUES ($id, 'onepiece', $name, $set_id, $order, $serie, $total)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order,
+           serie_name = excluded.serie_name, card_total = excluded.card_total`
+      );
+      for (const s of sets) {
+        stmt.run({ $id: onePieceCollectionId(s.id), $name: s.name, $set_id: s.id,
+          $order: 10000 - s.rank, $serie: s.serie, $total: s.cards.length });
+      }
+      stmt.free();
+      for (const s of sets) this.writeCards(onePieceCollectionId(s.id), s.cards, now);
+      this.db.run('COMMIT');
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
+    }
+    this.save();
+  }
+
+  // Busca por nombre en todos los sets descargados (con el mismo formato que el buscador de TCGdex).
+  searchOnePieceCards(name) {
+    return this.all(
+      `SELECT k.id, k.local_id, k.name, k.rarity, k.image_url, k.set_id, c.name AS set_name, k.data_json,
+              json_extract(k.data_json, '$.market_price') AS price, COALESCE(o.quantity, 0) AS quantity
+         FROM cards k JOIN collections c ON c.id = k.collection_id
+         LEFT JOIN owned_cards o ON o.card_id = k.id
+        WHERE c.tcg = 'onepiece' AND c.custom = 0 AND instr(lower(k.name), lower($q)) > 0
+        ORDER BY c.sort_order, k.local_id, k.id LIMIT 500`,
+      { q: name }
+    ).map((k) => ({
+      id: k.id, localId: k.local_id, name: k.name, rarity: k.rarity, image: k.image_url,
+      price: k.price, quantity: k.quantity, set: { id: k.set_id, name: k.set_name },
+      attrs: cardAttrs(parseJson(k.data_json)),
+    }));
   }
 
   getQuantities(cardIds) {
@@ -464,6 +530,15 @@ class Database {
 }
 
 const setCollectionId = (setId) => `pkm-set-${setId}`;
+const onePieceCollectionId = (setId) => `op-set-${setId}`;
+
+function parseJson(text) {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
 
 function prefix(obj) {
   const out = {};
