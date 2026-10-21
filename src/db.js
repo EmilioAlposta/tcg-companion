@@ -387,14 +387,23 @@ class Database {
 
   // Busca por nombre en todos los sets descargados (con el mismo formato que el buscador de TCGdex).
   searchOnePieceCards(name) {
+    return this.queryOnePieceCards('instr(lower(k.name), lower($q)) > 0', { q: name });
+  }
+
+  // Todas las versiones de una carta de One Piece: mismo código (OP01-001) en cualquier set, con sus artes alternativos.
+  onePiecePrintings(code) {
+    return this.queryOnePieceCards('k.local_id = $code', { code });
+  }
+
+  queryOnePieceCards(where, params) {
     return this.all(
       `SELECT k.id, k.local_id, k.name, k.rarity, k.image_url, k.set_id, c.name AS set_name, k.data_json,
               json_extract(k.data_json, '$.market_price') AS price, COALESCE(o.quantity, 0) AS quantity
          FROM cards k JOIN collections c ON c.id = k.collection_id
          LEFT JOIN owned_cards o ON o.card_id = k.id
-        WHERE c.tcg = 'onepiece' AND c.custom = 0 AND instr(lower(k.name), lower($q)) > 0
+        WHERE c.tcg = 'onepiece' AND c.custom = 0 AND ${where}
         ORDER BY c.sort_order, k.local_id, k.id LIMIT 500`,
-      { q: name }
+      params
     ).map((k) => ({
       id: k.id, localId: k.local_id, name: k.name, rarity: k.rarity, image: k.image_url,
       price: k.price, quantity: k.quantity, set: { id: k.set_id, name: k.set_name },

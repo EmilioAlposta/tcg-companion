@@ -610,7 +610,11 @@ async function showCollection(tcg, collectionId, opts = {}) {
   };
 
   const menuFor = (card) => [
-    ...quantityMenuItems(tcg, card, (q) => setQuantity(card, q)),
+    ...quantityMenuItems(tcg, card, (q) => setQuantity(card, q), (changed) => {
+      for (const c of cards) if (changed[c.id] != null) c.quantity = changed[c.id];
+      refreshStats();
+      render();
+    }),
     { separator: true },
     card.hidden
       ? { label: 'Add back to set', icon: '↺', onClick: () => setHidden(card, false) }
@@ -742,7 +746,10 @@ async function showCollectionEditor(tcg, collectionId) {
     setQuantity(c, c.quantity > 0 ? 0 : 1);
   };
   const menuFor = (c) => [
-    ...quantityMenuItems(tcg, tile(c), (q) => setQuantity(c, q)),
+    ...quantityMenuItems(tcg, tile(c), (q) => setQuantity(c, q), (changed) => {
+      for (const r of [...results, ...draft.cards]) if (changed[r.id] != null) r.quantity = changed[r.id];
+      renderAll();
+    }),
     { separator: true },
     { label: 'Remove from collection', icon: '×', onClick: () => toggleIncluded(c) },
   ];
@@ -891,8 +898,9 @@ function confirmDialog(title, text, okLabel) {
   });
 }
 
-// Opciones comunes del menú ⋮: cantidad y enlaces externos. setQuantity(n) guarda la nueva cantidad.
-function quantityMenuItems(tcg, card, setQuantity) {
+// Opciones comunes del menú ⋮: cantidad, versiones y enlaces externos. setQuantity(n) guarda la nueva cantidad;
+// onPrintingsChange({ cardId: cantidad }) recibe las cantidades cambiadas desde el diálogo de versiones.
+function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange) {
   const link = { id: card.id, name: card.name, localId: card.local_id, official: card.set_official, tcg: tcg.id };
   return [
     { label: 'Add 1', icon: '+', onClick: () => setQuantity(card.quantity + 1) },
@@ -906,6 +914,13 @@ function quantityMenuItems(tcg, card, setQuantity) {
     card.quantity > 0 ? { label: 'Remove 1', icon: '−', onClick: () => setQuantity(card.quantity - 1) } : null,
     card.quantity > 1 ? { label: `Remove all (${card.quantity})`, icon: '×', onClick: () => setQuantity(0) } : null,
     { separator: true },
+    {
+      label: 'View all arts', icon: '❐',
+      onClick: async () => {
+        const changed = await showPrintings(tcg, card);
+        if (Object.keys(changed).length) onPrintingsChange?.(changed);
+      },
+    },
     tcg.id === 'pokemon' ? { label: 'View on TCG Collector', icon: '↗', onClick: () => window.tcg.openTcgCollector(link) } : null,
     { label: 'View on TCGplayer', icon: '↗', onClick: () => window.tcg.openTcgplayer(link) },
   ];
@@ -950,6 +965,58 @@ function expandButton(card) {
     class: 'card-expand-btn', title: 'View larger',
     onclick: (e) => { e.stopPropagation(); openModal(card); },
   }, svg);
+}
+
+// ---------- Diálogo "View all arts" ----------
+// Muestra todos los artes de la carta (la misma carta en cualquier set); clic = la tengo / no la tengo.
+// Devuelve las cantidades que se cambiaron, { cardId: cantidad }, para que la vista que lo abrió se actualice.
+function showPrintings(tcg, card) {
+  return new Promise((resolve) => {
+    const changed = {};
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(changed); };
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if (!modal.classList.contains('hidden')) modal.classList.add('hidden'); // primero se cierra la carta en grande
+      else close();
+    };
+    const subtitle = el('p', { class: 'muted' }, `#${card.local_id} ${card.name}`);
+    const body = el('div', { class: 'printings-body' },
+      el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, 'Looking for other arts…')));
+    // El header queda fijo arriba y solo se desplaza el cuerpo, para que "Close" siempre se vea.
+    const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
+      el('div', { class: 'dialog printings-dialog', role: 'dialog' },
+        el('div', { class: 'printings-header' },
+          el('div', {}, el('h3', {}, 'All arts'), subtitle),
+          el('button', { class: 'chip', onclick: close }, 'Close')),
+        body));
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(overlay);
+
+    window.tcg.getPrintings({ id: card.id, name: card.name, localId: card.local_id, tcg: tcg.id }).then((found) => {
+      const cards = found.map((c) => ({ ...c, image_url: c.image, local_id: c.localId }));
+      if (!cards.length) cards.push({ ...card }); // la API no la encontró: al menos se muestra la propia carta
+      subtitle.textContent = `#${card.local_id} ${card.name} · ${cards.length} art${cards.length === 1 ? '' : 's'}`;
+      const grid = el('div', { class: 'card-grid' });
+      const render = () => setChildren(grid, ...cards.map((c) => {
+        const tile = cardTile(c, async () => {
+          if (c.quantity > 1) return; // la cantidad se gestiona desde el set
+          c.quantity = c.quantity > 0 ? 0 : 1;
+          await window.tcg.setOwned(c.id, c.quantity, c.set
+            ? { id: c.id, setId: c.set.id, localId: c.localId, name: c.name, rarity: c.rarity, image: c.image }
+            : undefined);
+          changed[c.id] = c.quantity;
+          render();
+        }, [c.set?.name || c.set_name || '', c.rarity || '', c.price != null ? formatPrice(c) : null].filter((l) => l != null));
+        if (c.id === card.id) tile.classList.add('current');
+        return tile;
+      }));
+      render();
+      setChildren(body, el('p', { class: 'muted hint' }, 'Click an art to mark it as owned. The highlighted one is this card.'), grid);
+    }).catch((err) => {
+      setChildren(body, el('p', { class: 'error' }, `Could not load the other arts: ${err.message || err}`));
+    });
+  });
 }
 
 // ---------- Diálogo "Agregar varias" ----------

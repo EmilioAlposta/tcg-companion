@@ -114,11 +114,25 @@ async function fetchSets() {
 // Busca cartas por nombre en todos los sets (TCGdex busca por "contiene", sin distinguir mayúsculas).
 async function searchCards(name) {
   const data = await graphql(`{ cards(filters: {name: ${JSON.stringify(name)}}) {
-    id localId name image rarity category types stage suffix trainerType energyType set { id name } } }`);
-  return (data.cards || []).map(({ category, types, stage, suffix, trainerType, energyType, ...c }) => ({
+    id localId name image rarity category types stage suffix trainerType energyType set { id name }
+    hp attacks { name damage } abilities { name } } }`);
+  return (data.cards || []).map(({ category, types, stage, suffix, trainerType, energyType, hp, attacks, abilities, ...c }) => ({
     ...c, rarity: c.rarity === 'None' ? null : c.rarity,
     attrs: cardAttrs({ category, types, stage, suffix, trainerType, energyType }),
+    printKey: printKey({ name: c.name, hp, attacks, abilities }),
   }));
+}
+
+// Identifica "la misma carta" con otro arte: mismo nombre, HP, habilidades y ataques (nombre y daño).
+// Así un Charizard ex de 151 no se mezcla con el de Paldean Fates, que se llama igual pero juega distinto.
+// TCGdex a veces trae ataques o nombres nulos en cartas antiguas: se tratan como vacíos.
+function printKey({ name, hp, attacks, abilities }) {
+  const lower = (s) => String(s ?? '').toLowerCase();
+  return JSON.stringify([
+    lower(name), hp ?? null,
+    (abilities || []).filter(Boolean).map((a) => lower(a.name)),
+    (attacks || []).filter(Boolean).map((a) => [lower(a.name), a.damage ?? null]),
+  ]);
 }
 
 // Precio de mercado de una carta: TCGplayer (USD) si existe, si no Cardmarket (EUR).

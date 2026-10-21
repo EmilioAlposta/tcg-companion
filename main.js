@@ -35,6 +35,16 @@ async function syncCollection(collectionId) {
   db.replaceCards(collectionId, cards);
 }
 
+// Busca en TCGdex, se queda con las cartas de sets conocidos (y que pasen `keep`) y las ordena del set más nuevo al más antiguo.
+async function searchPokemonCards(name, keep = () => true) {
+  const found = (await searchCards(name)).filter((c) => c.set && db.getCollection(setCollectionId(c.set.id)) && keep(c));
+  const sets = Object.fromEntries(db.getCollections('pokemon').map((c) => [c.set_id, c]));
+  found.sort((a, b) => (sets[b.set.id]?.release_date || '').localeCompare(sets[a.set.id]?.release_date || '')
+    || a.localId.localeCompare(b.localId, undefined, { numeric: true }));
+  const qty = db.getQuantities(found.map((c) => c.id));
+  return found.map((c) => ({ ...c, quantity: qty[c.id] }));
+}
+
 function registerIpc() {
   ipcMain.handle('db:path', () => db.filePath);
   ipcMain.handle('collections:list', async (_e, tcg, { refreshSets = false } = {}) => {
@@ -92,12 +102,16 @@ function registerIpc() {
       if (!db.hasOnePieceSets()) db.replaceOnePieceCatalog(await onePiece.fetchCatalog());
       return db.searchOnePieceCards(name);
     }
-    const found = (await searchCards(name)).filter((c) => c.set && db.getCollection(setCollectionId(c.set.id)));
-    const sets = Object.fromEntries(db.getCollections('pokemon').map((c) => [c.set_id, c]));
-    found.sort((a, b) => (sets[b.set.id]?.release_date || '').localeCompare(sets[a.set.id]?.release_date || '')
-      || a.localId.localeCompare(b.localId, undefined, { numeric: true }));
-    const qty = db.getQuantities(found.map((c) => c.id));
-    return found.map((c) => ({ ...c, quantity: qty[c.id] }));
+    return searchPokemonCards(name);
+  });
+  // Artes de una carta: en One Piece, el mismo código en todos los sets;
+  // en Pokémon, las cartas con el mismo nombre, HP, habilidades y ataques (ver printKey).
+  ipcMain.handle('card:printings', async (_e, { id, name, localId, tcg }) => {
+    if (tcg === 'onepiece') return db.onePiecePrintings(localId);
+    const exact = String(name).toLowerCase();
+    const sameName = await searchPokemonCards(name, (c) => c.name.toLowerCase() === exact);
+    const key = sameName.find((c) => c.id === id)?.printKey;
+    return key ? sameName.filter((c) => c.printKey === key) : sameName;
   });
   ipcMain.handle('db:reveal', () => shell.showItemInFolder(db.filePath));
   ipcMain.handle('card:setHidden', (_e, collectionId, cardId, hidden) => {
