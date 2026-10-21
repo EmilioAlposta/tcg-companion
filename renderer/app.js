@@ -119,7 +119,9 @@ async function showTcg(tcg) {
   const search = cardSearch(tcg, async () => renderSets(await window.tcg.listCollections(tcg.id)));
 
   setChildren(view,
-    el('h1', { class: 'title' }, tcg.name),
+    el('div', { class: 'collection-header tcg-header' },
+      el('h1', { class: 'title' }, tcg.name),
+      el('div', { class: 'toolbar' }, el('div', { class: 'toolbar-row' }, exportButton(tcg, null)))),
     search,
     el('div', { class: 'section-head collections-head' },
       el('h2', { class: 'section-title' }, 'Collections'),
@@ -676,6 +678,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
       el('div', { class: 'toolbar' },
         el('div', { class: 'toolbar-row' },
           notesButton(collection),
+          exportButton(tcg, collection),
           collection.custom
             ? el('button', { class: 'btn', onclick: () => navigate(showCollectionEditor, tcg, collectionId) }, 'Edit Collection')
             : el('button', { class: 'btn', onclick: () => showCollection(tcg, collectionId, { refresh: true }) },
@@ -702,6 +705,98 @@ function notesButton(collection) {
       collection.notes = value;
     },
   }, '📝 Notes');
+}
+
+// ---------- Exportar ----------
+// collection null = todo el TCG (solo las cartas que tienes); con un set o colección custom se elige además
+// si exportar las que tienes o las que faltan y, en las que faltan, si cada versión (foil, reverse…) cuenta aparte.
+const EXPORT_FORMATS = [
+  { key: 'xlsx', label: 'Excel', hint: 'An .xlsx spreadsheet with set, number, name, version and quantity.' },
+  { key: 'csv', label: 'CSV', hint: 'Quantity, name, set and card number: the columns most collection sites read when importing a CSV.' },
+  { key: 'moxfield', label: 'Moxfield', tcg: 'magic',
+    hint: 'Ready for Moxfield: Collection › Import › CSV. Foil and etched copies keep their finish.' },
+];
+
+function exportButton(tcg, collection) {
+  return el('button', { class: 'btn btn-secondary', title: 'Export the cards to a file', onclick: () => openExportDialog(tcg, collection) },
+    '⭳ Export');
+}
+
+function openExportDialog(tcg, collection) {
+  const opts = { mode: 'owned', splitVariants: true, format: 'xlsx' };
+  const withVariants = tcg.id !== 'onepiece'; // en One Piece cada versión ya es una carta distinta
+  const body = el('div', { class: 'export-groups' });
+  const actions = el('div', { class: 'dialog-actions' });
+  const close = () => {
+    if (busy) return;
+    overlay.remove();
+    document.removeEventListener('keydown', onKey, true);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+
+  const group = (title, options, key) => el('div', { class: 'export-group' },
+    el('div', { class: 'filter-field-label' }, title),
+    el('div', { class: 'chips' }, options.map(([value, label]) =>
+      optionChip(label, opts[key] === value, () => { opts[key] = value; render(); }))));
+
+  const render = () => {
+    const formats = EXPORT_FORMATS.filter((f) => !f.tcg || f.tcg === tcg.id);
+    setChildren(body,
+      collection ? group('Cards', [['owned', 'Cards I own'], ['missing', 'Cards I am missing']], 'mode') : null,
+      collection && opts.mode === 'missing' && withVariants ? group(
+        tcg.id === 'magic' ? 'Versions (non-foil, foil, etched)' : 'Versions (normal, holo, reverse holo, stamped…)', [
+        [true, 'Each missing version'], [false, 'Only cards with no copies'],
+      ], 'splitVariants') : null,
+      group('Format', formats.map((f) => [f.key, f.label]), 'format'),
+      el('p', { class: 'muted export-hint' }, formats.find((f) => f.key === opts.format).hint));
+  };
+
+  // Al pulsar "Export…" el diálogo pasa a una pantalla de carga (y no se puede cerrar) mientras se elige dónde
+  // guardar y se genera el fichero; al terminar, el resultado con "Show in folder" y "Done".
+  let busy = false;
+  const loading = (text) => {
+    setChildren(body, el('div', { class: 'loading export-loading' }, el('div', { class: 'spinner' }), el('p', {}, text)));
+    setChildren(actions);
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const run = async () => {
+    const request = { tcg: tcg.id, collectionId: collection?.id || null, ...opts };
+    busy = true;
+    loading('Choose where to save the file…');
+    await wait(50); // que se pinte antes de abrir la ventana de guardar (en Windows tarda en aparecer)
+    try {
+      const filePath = await window.tcg.chooseExportPath(request);
+      if (!filePath) { render(); renderActions(); return; } // se canceló la ventana de guardar
+      loading('Generating the file…');
+      // Con pocas cartas el fichero sale al instante: la carga se muestra un momento para que no parpadee.
+      const [result] = await Promise.all([window.tcg.exportCollection({ ...request, filePath }), wait(800)]);
+      setChildren(body, el('p', {}, `Exported ${result.rows} row${result.rows === 1 ? '' : 's'} to:`),
+        el('p', { class: 'muted export-path' }, result.path));
+      setChildren(actions,
+        el('button', { class: 'chip', onclick: () => window.tcg.revealFile(result.path) }, 'Show in folder'),
+        el('button', { class: 'btn', onclick: close }, 'Done'));
+    } catch (err) {
+      render();
+      body.append(el('p', { class: 'error' }, `Could not export: ${err.message || err}`));
+      renderActions();
+    } finally {
+      busy = false;
+    }
+  };
+  const renderActions = () => setChildren(actions,
+    el('button', { class: 'chip', onclick: close }, 'Cancel'),
+    el('button', { class: 'btn', onclick: run }, 'Export…'));
+
+  const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
+    el('div', { class: 'dialog export-dialog', role: 'dialog' },
+      el('h3', {}, 'Export'),
+      el('p', { class: 'muted' }, collection ? collection.name : `Every ${tcg.name} card you own, from all sets`),
+      body,
+      actions));
+  render();
+  renderActions();
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(overlay);
 }
 
 // Devuelve el texto nuevo, o null si se cancela.

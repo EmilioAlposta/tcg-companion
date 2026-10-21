@@ -96,6 +96,7 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
   display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap;
 }
 .collection-header .title { margin-bottom: 4px; }
+.tcg-header { align-items: center; margin-bottom: 16px; }
 .counter { color: var(--muted); }
 /* Dos filas: arriba los botones (notas, actualizar), abajo búsqueda y filtros */
 .toolbar { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
@@ -284,6 +285,18 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
   color: var(--text); padding: 8px 12px; font: inherit; font-size: 14px;
 }
 .notes-input:focus { outline: none; border-color: var(--accent); }
+
+/* ---------- Exportar ---------- */
+.export-dialog { width: 460px; max-width: 90vw; }
+.export-groups { display: flex; flex-direction: column; gap: 14px; }
+.export-group { display: flex; flex-direction: column; gap: 8px; }
+.export-group .chips { flex-wrap: wrap; }
+.dialog .export-hint { margin: 0; }
+.dialog .export-path { margin: 0; word-break: break-all; }
+.loading.export-loading { margin: 12px 0 4px; }
+.loading.export-loading p { margin: 12px 0 0; }
+
+
 
 /* ---------- Todos los sets y buscador de cartas ---------- */
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 8px; }

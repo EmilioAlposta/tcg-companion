@@ -237,6 +237,31 @@ class Database {
     }).map((card) => this.withVariantQuantities(card));
   }
 
+  // Todas las cartas que tienes de un TCG (una vez cada una, desde su set), ordenadas por set y número.
+  // Para exportar: mismo formato que getCards, más set_name (el nombre del set).
+  getOwnedCards(tcg) {
+    return this.all(
+      `SELECT k.id, k.set_id, k.local_id, k.name, k.rarity, c.name AS set_name, o.quantity, k.data_json,
+              (SELECT s.data_json FROM cards s WHERE s.id = k.id AND s.collection_id <> k.collection_id
+                  AND s.data_json IS NOT NULL LIMIT 1) AS source_json
+         FROM owned_cards o JOIN cards k ON k.id = o.card_id JOIN collections c ON c.id = k.collection_id
+        WHERE c.tcg = $tcg AND c.custom = 0
+        GROUP BY k.id
+        ORDER BY c.sort_order, c.release_date DESC, c.name, CAST(k.local_id AS INTEGER), k.local_id`,
+      { tcg }
+    ).map(({ data_json, source_json, ...card }) => {
+      const own = parseJson(data_json);
+      card.variants = own?.variantList || cardVariants(own) || cardVariants(parseJson(source_json));
+      return this.withVariantQuantities(card);
+    });
+  }
+
+  // Nombre de cada set de un TCG por su código (para las cartas de las colecciones custom).
+  getSetNames(tcg) {
+    return Object.fromEntries(this.all('SELECT set_id, name FROM collections WHERE tcg = $tcg AND custom = 0', { tcg })
+      .map((c) => [c.set_id, c.name]));
+  }
+
   // ---------- Versiones (normal, reverse holo, con sello…) ----------
 
   // Añade a la carta variant_qty: { versión: copias } (solo las versiones que tienes; '' = la principal).
