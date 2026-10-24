@@ -379,6 +379,7 @@ function filterCards(cards, state) {
   return cards.filter((c) => {
     if (state.status === 'owned' && !(c.quantity > 0)) return false;
     if (state.status === 'missing' && c.quantity > 0) return false;
+    if (state.minQty && !(c.quantity >= state.minQty)) return false;
     return FILTER_GROUPS.every((g) => {
       const picked = state.values[g.key];
       return !picked?.length || valuesOf(g, c).some((v) => picked.includes(v));
@@ -417,6 +418,7 @@ function advancedFilter(tcg, state, { getCards, statusOptions = () => OWNED_STAT
     const list = [];
     const status = statusOptions().find(([k]) => k === state.status);
     if (status && !showQuick()) list.push({ label: status[1], remove: () => { state.status = null; } });
+    if (state.minQty) list.push({ label: `Copies: ${state.minQty}+`, remove: () => { state.minQty = null; } });
     for (const g of FILTER_GROUPS) {
       for (const v of state.values[g.key] || []) {
         list.push({ label: `${groupLabel(g, tcg)}: ${valueLabel(g, v, tcg)}`, remove: () => {
@@ -438,7 +440,7 @@ function advancedFilter(tcg, state, { getCards, statusOptions = () => OWNED_STAT
           el('span', { class: 'icon-x' })))),
       list.length > 1 ? el('button', {
         class: 'link filter-clear',
-        onclick: () => { sfx.play('uncheck'); removeAndRefresh(() => { state.status = null; state.values = {}; }); },
+        onclick: () => { sfx.play('uncheck'); removeAndRefresh(() => { state.status = null; state.minQty = null; state.values = {}; }); },
       }, 'Clear all') : null);
     badges.classList.toggle('hidden', !list.length);
     setChildren(chips, showQuick() ? [['', 'All'], ...statusOptions()].map(([k, label]) =>
@@ -455,6 +457,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
   return new Promise((resolve) => {
     const draft = {
       status: state.status,
+      minQty: state.minQty || null,
       values: Object.fromEntries(Object.entries(state.values).map(([k, v]) => [k, [...v]])),
     };
     const body = el('div', { class: 'filter-groups' });
@@ -541,8 +544,29 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
           draft.values[g.key] = g.single ? (v === null ? [] : [v]) : now.includes(v) ? now.filter((x) => x !== v) : [...now, v];
         });
       }).filter(Boolean);
+      // Cantidad mínima de copias: vacío o 0 = sin filtro. Botones − / + propios en lugar de las flechas nativas.
+      const setMinQty = (n) => {
+        draft.minQty = n > 0 ? n : null;
+        minQtyInput.value = draft.minQty ? String(draft.minQty) : '';
+        minQty.classList.toggle('has-value', !!draft.minQty);
+      };
+      const minQtyInput = el('input', {
+        type: 'number', min: '1', step: '1', placeholder: 'Any', value: draft.minQty ? String(draft.minQty) : '',
+        oninput: (e) => {
+          const n = Math.floor(Number(e.target.value));
+          draft.minQty = n > 0 ? n : null;
+          minQty.classList.toggle('has-value', !!draft.minQty);
+        },
+      });
+      const stepButton = (label, title, delta) => el('button', {
+        class: 'filter-step', type: 'button', title,
+        onclick: () => { sfx.play('click'); setMinQty((draft.minQty || 0) + delta); },
+      }, label);
+      const minQty = el('div', { class: 'filter-number' + (draft.minQty ? ' has-value' : '') },
+        stepButton('−', 'Fewer copies', -1), minQtyInput, stepButton('+', 'More copies', 1));
       setChildren(body,
         dropdown('Collection', statusOptions, true, () => (draft.status ? [draft.status] : []), (v) => { draft.status = v; }),
+        el('div', { class: 'filter-field' }, el('span', { class: 'filter-field-label' }, 'Min. copies'), minQty),
         groups,
         groups.length ? null : el('p', { class: 'muted filter-empty' }, 'There is no card data to filter by type, rarity or color here.'));
     };
@@ -574,7 +598,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
         el('p', { class: 'muted' }, 'Leave a field empty to not filter by it.'),
         body,
         el('div', { class: 'dialog-actions' },
-          el('button', { class: 'link filter-reset', onclick: () => { sfx.play('uncheck'); draft.status = null; draft.values = {}; render(); } },
+          el('button', { class: 'link filter-reset', onclick: () => { sfx.play('uncheck'); draft.status = null; draft.minQty = null; draft.values = {}; render(); } },
             'Clear all'),
           el('button', { class: 'chip', onclick: () => close(null) }, 'Cancel'),
           el('button', { class: 'btn', onclick: apply }, 'Apply'))));
@@ -691,7 +715,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
     }, [collection.custom ? card.set_name || card.set_id : null, card.rarity || '', qtyLabel(card)].filter((l) => l != null),
     () => menuFor(card))));
     if (!list.length) grid.append(el('p', { class: 'muted' }, !cards.length && collection.custom
-      ? 'This collection has no cards yet. Use Edit Collection to add some.' : 'No cards match this filter.'));
+      ? 'This collection has no cards yet. Use Edit collection to add some.' : 'No cards match this filter.'));
   };
 
   setChildren(view,
@@ -705,10 +729,10 @@ async function showCollection(tcg, collectionId, opts = {}) {
           notesButton(collection),
           exportButton(tcg, collection),
           collection.custom
-            ? el('button', { class: 'btn', onclick: () => navigate(showCollectionEditor, tcg, collectionId) }, 'Edit Collection')
+            ? el('button', { class: 'btn', onclick: () => navigate(showCollectionEditor, tcg, collectionId) }, 'Edit collection')
             : el('button', { class: 'btn', onclick: () => showCollection(tcg, collectionId, { refresh: true }) },
               'Update from API'),
-          collection.custom ? el('button', { class: 'btn btn-danger', onclick: removeCollection }, 'Delete Collection') : null),
+          collection.custom ? el('button', { class: 'btn btn-danger', onclick: removeCollection }, 'Delete collection') : null),
         el('div', { class: 'toolbar-row' }, advanced.chips, advanced.button))),
     advanced.badges,
     el('p', { class: 'muted hint' },

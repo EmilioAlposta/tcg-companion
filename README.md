@@ -67,6 +67,7 @@ Los precios no se muestran debajo de las cartas. En el menú ⋮ de cualquier ca
 En los sets, las colecciones custom y los buscadores de cartas, el botón **Filters** abre un diálogo para filtrar por:
 
 - **Colección:** las que tienes, las que te faltan o las ocultas. Mientras no haya otros filtros, en los sets se eligen directamente con los chips *All / Owned / Not owned*.
+- **Copias mínimas:** solo las cartas de las que tienes al menos esa cantidad de copias (por ejemplo, 5 muestra las que tienes 5 o más veces).
 - **Tipo de carta:** Pokémon / Trainer / Energy, o Leader / Character / Event / Stage en One Piece.
 - **Rareza**, **color** (tipo de energía en Pokémon) y **set**.
 - **Pokémon:** subtipo de entrenador o energía (Item, Supporter, Stadium, Tool…), fase (Basic, Stage 1, Stage 2…) y mecánica (ex, V, VMAX, GX…).

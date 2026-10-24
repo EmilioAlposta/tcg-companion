@@ -412,6 +412,26 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 }
 .dropdown-trigger:hover, .dropdown-trigger.open { border-color: var(--accent); }
 .dropdown-trigger.has-value { border-color: #ffcb0599; background: #ffcb0512; }
+.filter-number {
+  display: flex; align-items: center; width: 100%;
+  background: var(--bg); border: 1px solid #ffffff33; border-radius: 8px; overflow: hidden;
+}
+.filter-number:hover, .filter-number:focus-within { border-color: var(--accent); }
+.filter-number.has-value { border-color: #ffcb0599; background: #ffcb0512; }
+.filter-number input {
+  flex: 1; min-width: 0; background: none; border: none; outline: none; color: inherit;
+  padding: 8px 4px; font-size: 14px; font-family: inherit; text-align: center;
+  appearance: textfield;
+}
+.filter-number input::placeholder { color: var(--muted); }
+/* Sin las flechas nativas: se usan los botones − / + */
+.filter-number input::-webkit-inner-spin-button,
+.filter-number input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.filter-step {
+  flex-shrink: 0; width: 34px; align-self: stretch;
+  background: none; border: none; color: var(--muted); font-size: 18px; line-height: 1;
+}
+.filter-step:hover { color: var(--accent); background: #ffffff14; }
 .dropdown-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropdown-trigger:not(.has-value) .dropdown-value { color: var(--muted); }
 /* Flecha dibujada con CSS; gira al abrir */
