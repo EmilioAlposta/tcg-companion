@@ -38,6 +38,9 @@ async function fetchSets() {
   }));
 }
 
+// Formatos de los mazos de la app cuya legalidad se guarda con cada carta.
+const DECK_FORMATS = ['standard', 'pioneer', 'modern', 'legacy', 'vintage', 'pauper', 'commander'];
+
 const RARITIES = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare', mythic: 'Mythic Rare', special: 'Special', bonus: 'Bonus' };
 
 // Convierte una carta de Scryfall al formato que guarda la base de datos. Solo se guardan los campos
@@ -58,6 +61,9 @@ function toCard(c) {
     market_price: price ?? undefined,
     type_line: c.type_line || faces.map((f) => f.type_line).filter(Boolean).join(' // '),
     colors,
+    color_identity: c.color_identity,
+    // Formatos en los que la carta es legal (las restringidas de Vintage cuentan como legales).
+    legal: DECK_FORMATS.filter((f) => ['legal', 'restricted'].includes(c.legalities?.[f])),
     finishes: c.finishes,
     frame: c.frame,
     frame_effects: c.frame_effects,

@@ -255,7 +255,7 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .card-menu-btn:hover, .card-menu-btn.active { background: var(--blue); border-color: #fff; }
 
 .card-menu {
-  position: fixed; z-index: 20; min-width: 220px;
+  position: fixed; z-index: 35; /* encima de los diálogos (p. ej. el de "Add cards") */ min-width: 220px;
   background: var(--panel-2); border: 1px solid #ffffff22; border-radius: 10px;
   padding: 6px; box-shadow: 0 12px 30px #000a;
 }
@@ -506,3 +506,142 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .price-value { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); }
 .price-value strong { color: var(--text); font-size: 16px; }
 .price-value.main strong { color: var(--accent); }
+
+/* ---------- Mazos ---------- */
+/* Entrada "My decks" de la pantalla inicial, debajo de los TCG */
+.home-decks { display: flex; justify-content: center; margin: 44px 0 12px; }
+.decks-entry {
+  display: flex; align-items: center; gap: 20px; width: min(740px, 100%);
+  text-align: left; background: var(--panel); border: 1px solid #ffffff14; border-radius: 14px;
+  padding: 14px 22px 14px 18px; transition: transform .15s, border-color .15s;
+}
+.decks-entry:hover { border-color: var(--accent); background: var(--panel-2); transform: translateY(-3px); }
+.decks-entry .collection-meta { margin: 4px 0 0; }
+.decks-entry-text { flex: 1; min-width: 0; }
+/* Hasta tres portadas en abanico; sin mazos, el hueco de una carta vacía */
+.decks-entry-covers { position: relative; width: 92px; height: 74px; flex-shrink: 0; }
+.decks-entry-covers:empty { border: 2px dashed #ffffff33; border-radius: 6px; width: 53px; margin: 0 20px; }
+.decks-entry-covers img {
+  position: absolute; top: 0; width: 53px; height: 74px; object-fit: cover; border-radius: 4px;
+  box-shadow: 0 4px 12px #0009;
+}
+.decks-entry-covers img:nth-child(1) { left: 0; transform: rotate(-9deg); }
+.decks-entry-covers img:nth-child(2) { left: 20px; transform: rotate(0deg); z-index: 1; }
+.decks-entry-covers img:nth-child(3) { left: 40px; transform: rotate(9deg); z-index: 2; }
+.decks-entry-go { background: var(--blue); border-radius: 8px; padding: 8px 16px; font-weight: 600; }
+
+/* Tarjeta de un mazo: como la de un set, con la portada difuminada de fondo y la carta nítida encima */
+.deck-grid {
+  display: grid; gap: 14px; margin: 10px 0 18px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.deck-tile {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  background: var(--panel); border: 1px solid #ffffff14; border-radius: 12px; padding: 16px 12px 12px;
+  transition: transform .12s, border-color .12s;
+}
+.deck-tile:hover { transform: translateY(-3px); border-color: var(--accent); }
+.deck-tile-bg { position: absolute; inset: 0; z-index: -1; }
+.deck-tile-bg img {
+  width: 100%; height: 100%; object-fit: cover;
+  filter: blur(14px) brightness(.5) saturate(1.3); transform: scale(1.3);
+}
+.deck-tile-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, #0d1b2ee6 75%); }
+.deck-tcg-badge {
+  position: absolute; top: 10px; left: 10px; width: 22px; height: 31px; border-radius: 3px;
+  box-shadow: 0 2px 6px #000a;
+}
+.deck-tile-cover { width: 108px; aspect-ratio: 245 / 342; }
+.deck-tile-cover img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; box-shadow: 0 8px 20px #000b; transform: rotate(-3deg); }
+.deck-tile:hover .deck-tile-cover img { transform: rotate(0deg) scale(1.04); transition: transform .15s; }
+.deck-empty-cover {
+  width: 100%; height: 100%; border: 2px dashed #ffffff33; border-radius: 6px;
+  display: grid; place-items: center; color: var(--muted); font-size: 12px; padding: 6px;
+}
+.deck-tile-info { width: 100%; display: flex; flex-direction: column; gap: 2px; }
+.deck-tile .collection-meta { margin: 0; font-size: 12px; }
+.deck-tile .progress { width: 100%; margin-top: 6px; }
+
+.dialog .deck-name-label { margin-bottom: 4px; }
+.dialog .deck-dialog-error { margin: 4px 0 10px; font-size: 13px; min-height: 0; }
+.dialog .deck-dialog-error:empty { display: none; }
+.dialog .export-groups { margin-top: 12px; }
+.export-group .chips { flex-wrap: wrap; }
+
+/* Vista de un mazo */
+.deck-issues {
+  margin: 16px 0 4px; padding: 10px 14px; border-radius: 10px; font-size: 14px;
+  background: #ffcb0514; border: 1px solid #ffcb0555;
+}
+.deck-issues.ok { background: #2fbf7114; border-color: #2fbf7166; }
+.deck-issues-title { font-weight: 700; }
+.deck-issues.ok .deck-issues-title { color: var(--ok); }
+.deck-issues ul { margin: 6px 0 0; padding-left: 20px; color: var(--muted); }
+.deck-group-title { margin: 18px 0 10px; font-size: 15px; }
+.deck-group:first-child .deck-group-title { margin-top: 4px; }
+
+/* Cartas del mazo: verde = la tienes, ámbar = tienes menos copias de las que pide el mazo;
+   borde discontinuo = marcada a mano en este mazo (tu colección no cambia) */
+.card.partial { border-color: #ffcb05aa; }
+.card.partial .card-img-wrap img { filter: grayscale(.35) brightness(.8); }
+.card.overridden { border-style: dashed; }
+.card.overridden:not(.owned) { border-color: #ff6b6b99; }
+.card.overridden .deck-own-line { color: var(--accent); }
+.deck-qty {
+  position: absolute; left: 6px; bottom: 6px;
+  background: #000c; border: 1px solid #ffffff55; border-radius: 999px;
+  padding: 2px 9px; font-size: 13px; font-weight: 800;
+}
+.deck-cover-badge {
+  position: absolute; right: 6px; bottom: 6px; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--accent); color: #1b1b1b; font-size: 14px;
+  box-shadow: 0 2px 6px #000a;
+}
+/* En el buscador del mazo el + no indica si la tienes (eso lo dice el color de la carta) */
+.card.deck-pick .check { background: #000a; border-color: #ffffff55; }
+.card.deck-pick:hover .check { background: var(--blue); border-color: #fff; }
+.deck-slot-empty {
+  aspect-ratio: 245 / 342; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: var(--panel); border: 2px dashed #ffffff33; border-radius: 12px; color: var(--muted); font-weight: 600;
+}
+.deck-slot-empty:hover { border-color: var(--accent); color: var(--text); }
+.printings-header .search-row { margin: 10px 0 0; }
+.deck-grid > .muted { grid-column: 1 / -1; }
+
+/* Buscador del mazo (diálogo): las cartas que ya están en el mazo se ven como las que tienes, con + y − */
+.card-picker { width: 1100px; height: 86vh; }
+.card-picker-head { flex: 1; min-width: 0; }
+.card-picker-head .search-row { margin: 10px 0 0; }
+.card-picker .picker-head { margin-top: 0; }
+.card-picker .picker-head .hint { margin: 0; }
+.card.deck-pick.owned .check { background: var(--ok); border-color: #fff; }
+.pick-minus {
+  position: absolute; top: 42px; right: 6px;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: #000b; border: 2px solid #ffffff55;
+}
+.pick-minus:hover { background: var(--danger); border-color: #fff; }
+
+/* − ×N + sobre las cartas del mazo, al pasar el ratón (ocupa el sitio del ×N) */
+.deck-stepper {
+  position: absolute; left: 6px; bottom: 6px;
+  display: flex; align-items: center; gap: 2px; padding: 2px;
+  background: #000d; border: 1px solid #ffffff55; border-radius: 999px;
+  opacity: 0; transition: opacity .12s;
+}
+.deck-card:hover .deck-stepper, .deck-stepper:focus-within { opacity: 1; }
+.deck-card:hover .deck-qty { opacity: 0; }
+.deck-step {
+  width: 26px; height: 26px; padding: 0; border: none; border-radius: 50%;
+  display: grid; place-items: center; background: #ffffff1a;
+}
+.deck-step:hover { background: var(--blue); }
+.deck-step:first-child:hover { background: var(--danger); }
+.deck-step-qty { min-width: 30px; text-align: center; font-size: 13px; font-weight: 800; }
+
+/* Cartas que incumplen una regla del formato: la cantidad en rojo y el motivo debajo */
+.deck-qty.problem { background: var(--danger); border-color: #fff; color: #fff; }
+.deck-card.has-problem:hover .deck-stepper { border-color: var(--danger); }
+.deck-problem-line { color: var(--danger); }

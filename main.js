@@ -160,6 +160,8 @@ function registerIpc() {
       return db.searchOnePieceCards(name);
     }
     if (tcg === 'magic') return withMagicOwnership(await magic.searchCards(name));
+    // Solo se devuelven cartas de sets conocidos: hace falta la lista de sets (p. ej. al buscar desde un mazo).
+    if (!db.hasSets()) db.replaceSets(await fetchSets());
     return searchPokemonCards(name);
   });
   // Artes de una carta: en One Piece, el mismo código en todos los sets;
@@ -245,6 +247,38 @@ function registerIpc() {
     return { rows };
   });
   ipcMain.handle('file:reveal', (_e, filePath) => shell.showItemInFolder(filePath));
+
+  // Mazos: sus cartas no cuentan como cartas que tienes. Las acciones sobre las cartas devuelven la lista nueva.
+  ipcMain.handle('decks:list', () => db.getDecks());
+  ipcMain.handle('deck:get', (_e, id) => db.getDeck(id));
+  ipcMain.handle('deck:create', (_e, draft) => {
+    const name = String(draft?.name ?? '').trim();
+    if (!name) throw new Error('The deck needs a name');
+    if (!TCG_IDS.includes(draft.tcg)) throw new Error(`Unknown TCG: ${draft.tcg}`);
+    return db.createDeck({ tcg: draft.tcg, name, format: String(draft.format || 'casual') });
+  });
+  ipcMain.handle('deck:update', (_e, id, changes = {}) => {
+    const name = changes.name === undefined ? undefined : String(changes.name).trim();
+    if (name === '') throw new Error('The deck needs a name');
+    db.updateDeck(id, {
+      name,
+      format: changes.format === undefined ? undefined : String(changes.format),
+      coverCardId: changes.coverCardId === undefined ? undefined : changes.coverCardId || null,
+    });
+    return db.getDeck(id);
+  });
+  ipcMain.handle('deck:delete', (_e, id) => {
+    db.deleteDeck(id);
+    return true;
+  });
+  ipcMain.handle('deck:addCard', (_e, deckId, card, opts) => {
+    db.addDeckCard(deckId, card, { role: opts?.role || 'main', quantity: Math.max(1, Math.floor(opts?.quantity || 1)) });
+    return db.getDeckCards(deckId);
+  });
+  ipcMain.handle('deck:updateCard', (_e, deckId, cardId, changes) => {
+    db.updateDeckCard(deckId, cardId, changes || {});
+    return db.getDeckCards(deckId);
+  });
 
   ipcMain.handle('pokedex:stats', () => (db.isPokedexSynced() ? db.getPokedexStats() : null));
   ipcMain.handle('pokedex:get', async (_e, { refresh = false } = {}) => {

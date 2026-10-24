@@ -96,6 +96,35 @@ CREATE TABLE IF NOT EXISTS card_prices (
   currency   TEXT,
   fetched_at TEXT NOT NULL
 );
+
+-- Mazos del usuario (el formato y sus reglas los define la app: commander, standard…)
+CREATE TABLE IF NOT EXISTS decks (
+  id            TEXT PRIMARY KEY,
+  tcg           TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  format        TEXT NOT NULL,
+  cover_card_id TEXT,             -- carta de portada; NULL = el commander / líder o la primera carta
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+-- Cartas de un mazo, con sus datos: no están en cards ni en owned_cards, así que añadir una carta
+-- a un mazo no la marca como tuya ni la añade a su set.
+CREATE TABLE IF NOT EXISTS deck_cards (
+  deck_id        TEXT NOT NULL,
+  card_id        TEXT NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'main',  -- 'main' | 'commander' (Magic) | 'leader' (One Piece)
+  quantity       INTEGER NOT NULL DEFAULT 1,
+  owned_override INTEGER,                       -- NULL = según tu colección; 1 / 0 = la tengo / no, solo en este mazo
+  set_id         TEXT,
+  local_id       TEXT,
+  name           TEXT NOT NULL,
+  rarity         TEXT,
+  image_url      TEXT,
+  data_json      TEXT,
+  added_at       TEXT NOT NULL,
+  PRIMARY KEY (deck_id, card_id)
+);
 `;
 
 // Condición SQL: la carta k no está oculta en su colección.
@@ -138,6 +167,8 @@ class Database {
       this.db.run(`UPDATE collections SET custom = 1, name_filter = NULL, set_id = '', sort_order = 0
                     WHERE id = 'pkm-30th-pikachus'`);
     }
+    // Cartas de mazo que se quedaron sin copias: salen del mazo.
+    this.db.run('DELETE FROM deck_cards WHERE NOT (quantity > 0)');
     this.save();
   }
 
@@ -222,10 +253,14 @@ class Database {
                                 OR json_extract(s.data_json, '$.type_line') IS NOT NULL) LIMIT 1) END AS source_json
          FROM cards k LEFT JOIN owned_cards o ON o.card_id = k.id
          LEFT JOIN hidden_cards h ON h.collection_id = k.collection_id AND h.card_id = k.id
+         -- Set de cada carta (en una colección custom hay cartas de varios sets): se ordenan como la lista de sets.
+         LEFT JOIN collections s ON s.custom = 0 AND s.set_id = k.set_id
+                                AND s.tcg = (SELECT tcg FROM collections WHERE id = $cid)
         WHERE k.collection_id = $cid
-        ORDER BY CASE WHEN (SELECT custom FROM collections WHERE id = $cid) = 1 THEN k.fetched_at END,
-                 -- Magic: el nº de coleccionista ordenado como número (1, 2, 10… y no 1, 10, 2)
-                 CASE WHEN k.id LIKE 'mtg-%' THEN CAST(k.local_id AS INTEGER) END,
+        ORDER BY s.sort_order, s.release_date DESC, s.name, k.set_id,
+                 -- Nº de carta ordenado como número (1, 2, 10… y no 1, 10, 2); los que no empiezan por número
+                 -- (TG01, OP01-001…) van después, por orden alfabético.
+                 CASE WHEN k.local_id GLOB '[0-9]*' THEN 0 ELSE 1 END, CAST(k.local_id AS INTEGER),
                  k.local_id, k.id`,
       { cid: collectionId }
     ).map(({ data_json, source_json, ...card }) => {
@@ -351,7 +386,7 @@ class Database {
         this.db.run('DELETE FROM cards WHERE collection_id = $cid AND id = $id', { $cid: id, $id: cardId });
         this.db.run('DELETE FROM hidden_cards WHERE collection_id = $cid AND card_id = $id', { $cid: id, $id: cardId });
       }
-      // fetched_at guarda el orden en que se añadieron (las que ya estaban conservan el suyo).
+      // fetched_at guarda cuándo se añadió cada carta (las que ya estaban conservan el suyo).
       const stmt = this.db.prepare(
         `INSERT OR IGNORE INTO cards (id, collection_id, set_id, local_id, name, rarity, image_url, data_json, fetched_at)
          VALUES ($id, $cid, $set_id, $local_id, $name, $rarity, $image_url, $data_json, $at)`
@@ -381,6 +416,113 @@ class Database {
     }
     this.db.run('DELETE FROM collections WHERE id = $id', { $id: id });
     this.save();
+  }
+
+  // ---------- Mazos ----------
+
+  // Cada mazo con sus cartas (para la portada y los contadores de la lista de mazos).
+  getDecks() {
+    return this.all('SELECT * FROM decks ORDER BY updated_at DESC').map((d) => ({ ...d, cards: this.getDeckCards(d.id) }));
+  }
+
+  getDeck(id) {
+    const deck = this.get('SELECT * FROM decks WHERE id = $id', { id });
+    return deck ? { deck, cards: this.getDeckCards(id) } : null;
+  }
+
+  // have_exact: copias que tienes de esa impresión; have_any: de cualquier impresión de la misma carta
+  // (en Magic, mismo nombre; en One Piece, mismo código). En Pokémon solo cuenta la impresión exacta.
+  getDeckCards(deckId) {
+    return this.all(
+      `SELECT d.card_id AS id, d.role, d.quantity, d.owned_override, d.set_id, d.local_id, d.name, d.rarity, d.image_url,
+              d.data_json,
+              COALESCE((SELECT quantity FROM owned_cards WHERE card_id = d.card_id), 0) AS have_exact,
+              COALESCE((SELECT SUM(o.quantity) FROM owned_cards o
+                         WHERE o.card_id = d.card_id
+                            OR (d.card_id LIKE 'mtg-%' AND o.card_id LIKE 'mtg-%'
+                                AND EXISTS (SELECT 1 FROM cards k WHERE k.id = o.card_id AND k.name = d.name))
+                            OR (d.card_id LIKE 'op-%' AND o.card_id LIKE 'op-%'
+                                AND EXISTS (SELECT 1 FROM cards k WHERE k.id = o.card_id AND k.local_id = d.local_id))), 0) AS have_any
+         FROM deck_cards d WHERE d.deck_id = $id AND d.quantity > 0 ORDER BY d.added_at, d.card_id`,
+      { id: deckId }
+    ).map(({ data_json, ...card }) => ({ ...parseJson(data_json), ...card }));
+  }
+
+  createDeck({ tcg, name, format }) {
+    const now = new Date();
+    const id = `deck-${now.getTime().toString(36)}`;
+    this.db.run(
+      `INSERT INTO decks (id, tcg, name, format, created_at, updated_at) VALUES ($id, $tcg, $name, $format, $now, $now)`,
+      { $id: id, $tcg: tcg, $name: name, $format: format, $now: now.toISOString() }
+    );
+    this.save();
+    return id;
+  }
+
+  // Solo cambia los campos que vienen (coverCardId null = la portada por defecto).
+  updateDeck(id, { name, format, coverCardId }) {
+    const fields = [];
+    const params = { $id: id, $now: new Date().toISOString() };
+    if (name !== undefined) { fields.push('name = $name'); params.$name = name; }
+    if (format !== undefined) { fields.push('format = $format'); params.$format = format; }
+    if (coverCardId !== undefined) { fields.push('cover_card_id = $cover'); params.$cover = coverCardId; }
+    this.db.run(`UPDATE decks SET ${[...fields, 'updated_at = $now'].join(', ')} WHERE id = $id`, params);
+    this.save();
+  }
+
+  deleteDeck(id) {
+    this.db.run('DELETE FROM deck_cards WHERE deck_id = $id', { $id: id });
+    this.db.run('DELETE FROM decks WHERE id = $id', { $id: id });
+    this.save();
+  }
+
+  // Añade copias de la carta al mazo. Si ya estaba con el mismo rol se suman; si cambia de rol
+  // (p. ej. pasa a ser el commander), se queda con las copias nuevas.
+  addDeckCard(deckId, card, { role = 'main', quantity = 1 } = {}) {
+    const now = new Date().toISOString();
+    this.db.run(
+      `INSERT INTO deck_cards (deck_id, card_id, role, quantity, set_id, local_id, name, rarity, image_url, data_json, added_at)
+       VALUES ($deck, $id, $role, $qty, $set_id, $local_id, $name, $rarity, $image_url, $data_json, $now)
+       ON CONFLICT(deck_id, card_id) DO UPDATE SET
+         quantity = CASE WHEN deck_cards.role = excluded.role THEN deck_cards.quantity + excluded.quantity ELSE excluded.quantity END,
+         role = excluded.role`,
+      {
+        $deck: deckId, $id: card.id, $role: role, $qty: quantity, $set_id: card.setId || '', $local_id: card.localId || '',
+        $name: card.name, $rarity: card.rarity || null, $image_url: card.image || null, $now: now,
+        $data_json: JSON.stringify({
+          set_name: card.setName, set_official: card.setOfficial ?? undefined, price: card.price ?? undefined,
+          attrs: card.attrs || undefined, color_identity: card.colorIdentity || undefined, legal: card.legal || undefined,
+          tcgplayer_id: card.tcgplayerId || undefined, scryfall_uri: card.scryfallUri || undefined,
+        }),
+      }
+    );
+    this.touchDeck(deckId, now);
+    this.save();
+  }
+
+  // changes: { quantity, role, ownedOverride } (solo los que vienen). quantity 0 = quitarla del mazo.
+  updateDeckCard(deckId, cardId, { quantity, role, ownedOverride }) {
+    const key = { $deck: deckId, $id: cardId };
+    // Sin copias (o una cantidad no válida), la carta sale del mazo.
+    if (quantity !== undefined && !(quantity >= 1)) {
+      this.db.run('DELETE FROM deck_cards WHERE deck_id = $deck AND card_id = $id', key);
+      this.db.run('UPDATE decks SET cover_card_id = NULL WHERE id = $deck AND cover_card_id = $id', key);
+    } else {
+      if (quantity !== undefined) {
+        this.db.run('UPDATE deck_cards SET quantity = $q WHERE deck_id = $deck AND card_id = $id', { ...key, $q: Math.floor(quantity) });
+      }
+      if (role !== undefined) this.db.run('UPDATE deck_cards SET role = $role WHERE deck_id = $deck AND card_id = $id', { ...key, $role: role });
+      if (ownedOverride !== undefined) {
+        this.db.run('UPDATE deck_cards SET owned_override = $o WHERE deck_id = $deck AND card_id = $id',
+          { ...key, $o: ownedOverride == null ? null : ownedOverride ? 1 : 0 });
+      }
+    }
+    this.touchDeck(deckId);
+    this.save();
+  }
+
+  touchDeck(deckId, now = new Date().toISOString()) {
+    this.db.run('UPDATE decks SET updated_at = $now WHERE id = $id', { $id: deckId, $now: now });
   }
 
   // ---------- Sets de TCGdex ----------
