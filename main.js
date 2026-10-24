@@ -28,6 +28,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Los efectos de sonido (al pasar el ratón por las cartas) deben sonar antes del primer clic.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -42,8 +44,6 @@ async function syncCollection(collectionId) {
   db.replaceCards(collectionId, cards);
 }
 
-async function ensureMagicSets() {
-  if (!db.hasMagicSets()) db.replaceMagicSets(await magic.fetchSets());
 // Los formatos de Moxfield solo existen para Magic.
 function checkExportFormat(tcg, format) {
   if (!FORMATS[format] || (format.startsWith('moxfield') && tcg !== 'magic')) throw new Error(`Unknown format: ${format}`);
@@ -63,6 +63,8 @@ async function buildExport({ tcg, collectionId, format, mode = 'owned', splitVar
   return { content: exportFile(rows, format, { mode }), rows: rows.length };
 }
 
+async function ensureMagicSets() {
+  if (!db.hasMagicSets()) db.replaceMagicSets(await magic.fetchSets());
 }
 
 // Cartas de Scryfall (buscador o artes) de sets conocidos, con lo que tienes de cada una y sus atributos y versiones.

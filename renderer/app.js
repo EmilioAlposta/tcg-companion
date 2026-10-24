@@ -15,12 +15,14 @@ const modalImg = document.getElementById('modal-img');
 const navStack = [];
 
 function navigate(fn, ...args) {
+  if (navStack.length) sfx.play('open'); // la pantalla inicial, al arrancar, no suena
   navStack.push([fn, args]);
   fn(...args);
 }
 
 backBtn.addEventListener('click', () => {
   if (navStack.length < 2) return;
+  sfx.play('back');
   navStack.pop();
   const [fn, args] = navStack[navStack.length - 1];
   fn(...args);
@@ -349,7 +351,10 @@ const valuesOf = (g, card) => [].concat(g.get(card) ?? []).map(String);
 
 // Chip de opción; data-label reserva el ancho del texto en negrita para que al activarlo no se mueva nada.
 const optionChip = (label, isActive, onClick) =>
-  el('button', { class: 'chip' + (isActive ? ' active' : ''), 'data-label': label, onclick: onClick }, label);
+  el('button', {
+    class: 'chip' + (isActive ? ' active' : ''), 'data-label': label,
+    onclick: (e) => { sfx.play('check'); onClick(e); },
+  }, label);
 
 // El estado 'hidden' lo resuelve quien llama (elige de qué lista de cartas parte).
 function filterCards(cards, state) {
@@ -411,11 +416,11 @@ function advancedFilter(tcg, state, { getCards, statusOptions = () => OWNED_STAT
       list.length ? el('span', { class: 'filter-count' }, String(list.length)) : null);
     setChildren(badges,
       list.map((f) => el('span', { class: 'filter-badge' }, f.label,
-        el('button', { class: 'filter-badge-x', title: 'Remove this filter', onclick: () => removeAndRefresh(f.remove) },
+        el('button', { class: 'filter-badge-x', title: 'Remove this filter', onclick: () => { sfx.play('uncheck'); removeAndRefresh(f.remove); } },
           el('span', { class: 'icon-x' })))),
       list.length > 1 ? el('button', {
         class: 'link filter-clear',
-        onclick: () => removeAndRefresh(() => { state.status = null; state.values = {}; }),
+        onclick: () => { sfx.play('uncheck'); removeAndRefresh(() => { state.status = null; state.values = {}; }); },
       }, 'Clear all') : null);
     badges.classList.toggle('hidden', !list.length);
     setChildren(chips, showQuick() ? [['', 'All'], ...statusOptions()].map(([k, label]) =>
@@ -451,7 +456,8 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
       const value = el('span', { class: 'dropdown-value' });
       const trigger = el('button', {
         class: 'dropdown-trigger', type: 'button', 'aria-haspopup': 'listbox',
-        onclick: (e) => { e.stopPropagation(); if (openPanel?.trigger === trigger) closePanel(); else open(); },
+        // stopPropagation: el clic no llega a document, así que el sonido se pone aquí.
+        onclick: (e) => { e.stopPropagation(); sfx.play('click'); if (openPanel?.trigger === trigger) closePanel(); else open(); },
       }, value, el('span', { class: 'dropdown-caret' }));
       const items = single ? [[null, 'All'], ...options] : options;
 
@@ -475,6 +481,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
               return el('button', {
                 class: 'dropdown-item' + (on ? ' selected' : ''), type: 'button', role: 'option', 'aria-selected': String(on),
                 onclick: () => {
+                  sfx.play(on && !single ? 'uncheck' : 'check');
                   onPick(v);
                   refresh();
                   if (single) closePanel(); else renderItems();
@@ -483,7 +490,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
             }),
             !single && selected.length ? el('button', {
               class: 'dropdown-clear', type: 'button',
-              onclick: () => { selected.forEach(onPick); refresh(); renderItems(); },
+              onclick: () => { sfx.play('uncheck'); selected.forEach(onPick); refresh(); renderItems(); },
             }, 'Clear selection') : null);
         };
         renderItems();
@@ -549,7 +556,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
         el('p', { class: 'muted' }, 'Leave a field empty to not filter by it.'),
         body,
         el('div', { class: 'dialog-actions' },
-          el('button', { class: 'link filter-reset', onclick: () => { draft.status = null; draft.values = {}; render(); } },
+          el('button', { class: 'link filter-reset', onclick: () => { sfx.play('uncheck'); draft.status = null; draft.values = {}; render(); } },
             'Clear all'),
           el('button', { class: 'chip', onclick: () => close(null) }, 'Cancel'),
           el('button', { class: 'btn', onclick: apply }, 'Apply'))));
@@ -638,7 +645,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
     card.hidden
       ? { label: 'Add back to set', icon: '↺', onClick: () => setHidden(card, false) }
       : { label: 'Hide from set', icon: '⊘', onClick: () => setHidden(card, true) },
-    collection.custom ? { label: 'Remove from collection', icon: '×', onClick: () => removeCard(card) } : null,
+    collection.custom ? { label: 'Remove from collection', icon: '×', sound: 'remove', onClick: () => removeCard(card) } : null,
   ];
 
   const removeCard = async (card) => {
@@ -715,6 +722,8 @@ const EXPORT_FORMATS = [
   { key: 'csv', label: 'CSV', hint: 'Quantity, name, set and card number: the columns most collection sites read when importing a CSV.' },
   { key: 'moxfield', label: 'Moxfield', tcg: 'magic',
     hint: 'Ready for Moxfield: Collection › Import › CSV. Foil and etched copies keep their finish.' },
+  { key: 'moxfieldText', label: 'Moxfield (text)', tcg: 'magic', copy: true,
+    hint: 'One card per line, like "2 Aang\'s Journey (TLA) 1", with *F* for foil and *E* for etched. Copy it and paste it in a Moxfield deck or list › Bulk Edit.' },
 ];
 
 function exportButton(tcg, collection) {
@@ -722,8 +731,6 @@ function exportButton(tcg, collection) {
     '⭳ Export');
 }
 
-  { key: 'moxfieldText', label: 'Moxfield (text)', tcg: 'magic', copy: true,
-    hint: 'One card per line, like "2 Aang\'s Journey (TLA) 1", with *F* for foil and *E* for etched. Copy it and paste it in a Moxfield deck or list › Bulk Edit.' },
 function openExportDialog(tcg, collection) {
   const opts = { mode: 'owned', splitVariants: true, format: 'xlsx' };
   const withVariants = tcg.id !== 'onepiece'; // en One Piece cada versión ya es una carta distinta
@@ -785,13 +792,6 @@ function openExportDialog(tcg, collection) {
       busy = false;
     }
   };
-  const renderActions = () => setChildren(actions,
-    el('button', { class: 'chip', onclick: close }, 'Cancel'),
-    el('button', { class: 'btn', onclick: run }, 'Export…'));
-
-  const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
-    el('div', { class: 'dialog export-dialog', role: 'dialog' },
-      el('h3', {}, 'Export'),
   // Copiar: sin ventana de guardar; el texto va directo al portapapeles.
   const copy = async () => {
     busy = true;
@@ -810,10 +810,17 @@ function openExportDialog(tcg, collection) {
       busy = false;
     }
   };
-      el('p', { class: 'muted' }, collection ? collection.name : `Every ${tcg.name} card you own, from all sets`),
-      body,
+  const renderActions = () => setChildren(actions,
+    el('button', { class: 'chip', onclick: close }, 'Cancel'),
     EXPORT_FORMATS.find((f) => f.key === opts.format)?.copy
       ? el('button', { class: 'chip', onclick: copy }, '📋 Copy to clipboard') : null,
+    el('button', { class: 'btn', onclick: run }, 'Export…'));
+
+  const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
+    el('div', { class: 'dialog export-dialog', role: 'dialog' },
+      el('h3', {}, 'Export'),
+      el('p', { class: 'muted' }, collection ? collection.name : `Every ${tcg.name} card you own, from all sets`),
+      body,
       actions));
   render();
   renderActions();
@@ -894,7 +901,7 @@ async function showCollectionEditor(tcg, collectionId) {
       renderAll();
     }, (key, q) => setVariant(c, key, q)),
     { separator: true },
-    { label: 'Remove from collection', icon: '×', onClick: () => toggleIncluded(c) },
+    { label: 'Remove from collection', icon: '×', sound: 'remove', onClick: () => toggleIncluded(c) },
   ];
   const toggleIncluded = (c) => {
     draft.cards = included().has(c.id) ? draft.cards.filter((x) => x.id !== c.id) : [...draft.cards, c];
@@ -920,7 +927,7 @@ async function showCollectionEditor(tcg, collectionId) {
     return el('div', {
       class: 'card pick' + (isIn ? ' owned' : ''),
       title: isIn ? 'In the collection (click to remove it)' : 'Click to add it to the collection',
-      onclick: () => toggleIncluded(c),
+      onclick: () => { sfx.play(isIn ? 'remove' : 'add'); toggleIncluded(c); },
     },
       el('div', { class: 'card-img-wrap' },
         t.image_url
@@ -1088,20 +1095,20 @@ function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange, setVariant
   const setMain = (n) => (variants ? setVariant('', n) : setQuantity(n));
   const mainName = variants ? ` ${variants[0].label}` : '';
   return [
-    { label: `Add 1${mainName}`, icon: '+', onClick: () => setMain(main + 1) },
+    { label: `Add 1${mainName}`, icon: '+', sound: 'add', onClick: () => setMain(main + 1) },
     {
       label: `Add several${mainName}…`, icon: '++',
       onClick: async () => {
         const n = await askQuantity(card, main, variants?.[0].label);
-        if (n) setMain(main + n);
+        if (n) { sfx.play('add'); setMain(main + n); }
       },
     },
-    main > 0 ? { label: `Remove 1${mainName}`, icon: '−', onClick: () => setMain(main - 1) } : null,
+    main > 0 ? { label: `Remove 1${mainName}`, icon: '−', sound: 'remove', onClick: () => setMain(main - 1) } : null,
     ...(variants ? [{ separator: true }, ...variants.slice(1).flatMap((v) => [
-      { label: `Add 1 ${v.label}`, icon: '+', onClick: () => setVariant(v.key, (qty[v.key] || 0) + 1) },
-      qty[v.key] > 0 ? { label: `Remove 1 ${v.label} (${qty[v.key]})`, icon: '−', onClick: () => setVariant(v.key, qty[v.key] - 1) } : null,
+      { label: `Add 1 ${v.label}`, icon: '+', sound: 'add', onClick: () => setVariant(v.key, (qty[v.key] || 0) + 1) },
+      qty[v.key] > 0 ? { label: `Remove 1 ${v.label} (${qty[v.key]})`, icon: '−', sound: 'remove', onClick: () => setVariant(v.key, qty[v.key] - 1) } : null,
     ])] : []),
-    card.quantity > 1 ? { label: `Remove all (${card.quantity})`, icon: '×', onClick: () => setQuantity(0) } : null,
+    card.quantity > 1 ? { label: `Remove all (${card.quantity})`, icon: '×', sound: 'remove', onClick: () => setQuantity(0) } : null,
     { separator: true },
     { label: 'View price', icon: '$', onClick: () => showPrices(tcg, card) },
     {
@@ -1126,7 +1133,8 @@ function cardTile(card, onToggle, lines, getMenu) {
     class: 'card' + (owned ? ' owned' : '') + (card.hidden ? ' is-hidden' : ''),
     title: card.quantity > 1 ? `You have ${card.quantity} (change the quantity from ⋮)`
       : owned ? 'Owned (click to unmark)' : 'Missing (click to mark)',
-    onclick: onToggle,
+    // Con más de una copia el clic no cambia nada (se gestiona desde ⋮), así que tampoco suena.
+    onclick: (e) => { if (!(card.quantity > 1)) sfx.play(card.quantity > 0 ? 'remove' : 'add'); onToggle(e); },
   },
     el('div', { class: 'card-img-wrap' },
       card.image_url
@@ -1155,7 +1163,7 @@ function expandButton(card) {
   svg.append(path);
   return el('button', {
     class: 'card-expand-btn', title: 'View larger',
-    onclick: (e) => { e.stopPropagation(); openModal(card); },
+    onclick: (e) => { e.stopPropagation(); sfx.play('zoom'); openModal(card); },
   }, svg);
 }
 
@@ -1291,11 +1299,12 @@ function closeCardMenu() {
 function openCardMenu(anchor, items) {
   const wasOpen = openMenu && openMenu.anchor === anchor;
   closeCardMenu();
+  sfx.play('click');
   if (wasOpen) return; // segundo clic en ⋮: solo cierra
   const menu = el('div', { class: 'card-menu', role: 'menu' },
     items.filter(Boolean).map((it) => it.separator ? el('div', { class: 'card-menu-sep' }) : el('button', {
       class: 'card-menu-item', role: 'menuitem',
-      onclick: (e) => { e.stopPropagation(); closeCardMenu(); it.onClick(); },
+      onclick: (e) => { e.stopPropagation(); closeCardMenu(); sfx.play(it.sound || 'click'); it.onClick(); },
     }, el('span', { class: 'card-menu-icon' }, it.icon || ''), it.label)));
   document.body.append(menu);
   const r = anchor.getBoundingClientRect();
@@ -1358,6 +1367,7 @@ async function showPokedex(tcg, opts = {}) {
     el('button', {
       class: 'chip' + (dexState.filter === key ? ' active' : ''),
       onclick: (e) => {
+        sfx.play('check');
         dexState.filter = key;
         e.currentTarget.parentElement.querySelectorAll('.chip').forEach((b) => b.classList.remove('active'));
         e.currentTarget.classList.add('active');
@@ -1500,5 +1510,32 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modal.clas
   dbBtn.textContent = `DB: ${await window.tcg.dbPath()}`;
   dbBtn.addEventListener('click', () => window.tcg.revealDb());
 })();
+
+// ---------- Sonidos ----------
+// Cualquier botón suena con un "clic"; los que tienen sonido propio (abrir, marcar una carta…) ya sonaron
+// en su manejador y sfx ignora este segundo efecto.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('button');
+  if (btn && !btn.disabled) sfx.play('click');
+});
+
+// "Tic" suave al pasar el ratón por una carta o una casilla de la cuadrícula (solo al entrar, no al moverse dentro).
+const HOVER_TARGETS = '.card, .tcg-tile:not(.disabled), .collection-item, .set-tile, .dex-tile:not(.disabled)';
+document.addEventListener('mouseover', (e) => {
+  const target = e.target.closest?.(HOVER_TARGETS);
+  if (target && !target.contains(e.relatedTarget)) sfx.play('hover');
+});
+
+const soundBtn = document.getElementById('sound-toggle');
+const renderSoundBtn = () => {
+  soundBtn.textContent = sfx.muted ? '🔇' : '🔊';
+  soundBtn.title = sfx.muted ? 'Turn sounds on' : 'Turn sounds off';
+};
+soundBtn.addEventListener('click', () => {
+  sfx.setMuted(!sfx.muted);
+  renderSoundBtn();
+  sfx.play('add');
+});
+renderSoundBtn();
 
 navigate(showHome);
