@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { Database, setCollectionId, magicCollectionId } = require('./src/db');
@@ -44,6 +44,25 @@ async function syncCollection(collectionId) {
 
 async function ensureMagicSets() {
   if (!db.hasMagicSets()) db.replaceMagicSets(await magic.fetchSets());
+// Los formatos de Moxfield solo existen para Magic.
+function checkExportFormat(tcg, format) {
+  if (!FORMATS[format] || (format.startsWith('moxfield') && tcg !== 'magic')) throw new Error(`Unknown format: ${format}`);
+}
+
+// Contenido exportado (Buffer) y nº de filas. Sin collectionId se exportan las cartas que tienes de todo el TCG.
+async function buildExport({ tcg, collectionId, format, mode = 'owned', splitVariants = false }) {
+  checkExportFormat(tcg, format);
+  const col = collectionId ? db.getCollection(collectionId) : null;
+  if (!col) mode = 'owned';
+  // Un set sin descargar solo tiene las cartas que marcaste: hacen falta todas para saber cuáles faltan.
+  if (col && !col.custom && !col.synced_at) await syncCollection(collectionId);
+  // Las cartas ocultas no cuentan como faltantes (igual que en el set).
+  const cards = col ? db.getCards(collectionId).filter((c) => mode === 'owned' || !c.hidden) : db.getOwnedCards(tcg);
+  const setNames = db.getSetNames(tcg);
+  const rows = exportRows(cards, { mode, splitVariants, setName: (c) => c.set_name || setNames[c.set_id] });
+  return { content: exportFile(rows, format, { mode }), rows: rows.length };
+}
+
 }
 
 // Cartas de Scryfall (buscador o artes) de sets conocidos, con lo que tienes de cada una y sus atributos y versiones.
@@ -199,7 +218,7 @@ function registerIpc() {
   // Exportar en dos pasos: primero se elige dónde guardar (la app muestra la pantalla de carga después)
   // y luego se genera el fichero. Sin collectionId se exportan las cartas que tienes de todo el TCG.
   ipcMain.handle('export:choosePath', async (e, { tcg, collectionId, format, mode = 'owned' }) => {
-    if (!FORMATS[format] || (format === 'moxfield' && tcg !== 'magic')) throw new Error(`Unknown format: ${format}`);
+    checkExportFormat(tcg, format);
     const col = collectionId ? db.getCollection(collectionId) : null;
     const tcgName = { pokemon: 'Pokemon', onepiece: 'One Piece', magic: 'Magic' }[tcg] || tcg;
     const title = `${col ? col.name : `${tcgName} collection`} - ${col ? mode : 'owned'}`.replace(/[\\/:*?"<>|]/g, '');
@@ -211,19 +230,17 @@ function registerIpc() {
     return canceled || !filePath ? null : filePath;
   });
   // Genera el fichero en filePath (la ruta elegida en export:choosePath). Devuelve { path, rows }.
-  ipcMain.handle('collection:export', async (_e, { tcg, collectionId, format, mode = 'owned', splitVariants = false, filePath }) => {
-    if (!FORMATS[format] || (format === 'moxfield' && tcg !== 'magic')) throw new Error(`Unknown format: ${format}`);
+  ipcMain.handle('collection:export', async (_e, { filePath, ...request }) => {
     if (!filePath) throw new Error('No file chosen');
-    const col = collectionId ? db.getCollection(collectionId) : null;
-    if (!col) mode = 'owned';
-    // Un set sin descargar solo tiene las cartas que marcaste: hacen falta todas para saber cuáles faltan.
-    if (col && !col.custom && !col.synced_at) await syncCollection(collectionId);
-    // Las cartas ocultas no cuentan como faltantes (igual que en el set).
-    const cards = col ? db.getCards(collectionId).filter((c) => mode === 'owned' || !c.hidden) : db.getOwnedCards(tcg);
-    const setNames = db.getSetNames(tcg);
-    const rows = exportRows(cards, { mode, splitVariants, setName: (c) => c.set_name || setNames[c.set_id] });
-    await fs.promises.writeFile(filePath, exportFile(rows, format, { mode }));
-    return { path: filePath, rows: rows.length };
+    const { content, rows } = await buildExport(request);
+    await fs.promises.writeFile(filePath, content);
+    return { path: filePath, rows };
+  });
+  // Lo mismo, pero el texto va al portapapeles en vez de a un fichero (para la lista de texto de Moxfield).
+  ipcMain.handle('collection:copyExport', async (_e, request) => {
+    const { content, rows } = await buildExport(request);
+    clipboard.writeText(content.toString('utf8'));
+    return { rows };
   });
   ipcMain.handle('file:reveal', (_e, filePath) => shell.showItemInFolder(filePath));
 

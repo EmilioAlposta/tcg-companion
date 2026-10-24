@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('tcg', {
   openMoxfield: (card) => ipcRenderer.invoke('card:openMoxfield', card),
   chooseExportPath: (opts) => ipcRenderer.invoke('export:choosePath', opts),
   exportCollection: (opts) => ipcRenderer.invoke('collection:export', opts),
+  copyExport: (opts) => ipcRenderer.invoke('collection:copyExport', opts),
   revealFile: (filePath) => ipcRenderer.invoke('file:reveal', filePath),
   pokedexStats: () => ipcRenderer.invoke('pokedex:stats'),
   getPokedex: (opts) => ipcRenderer.invoke('pokedex:get', opts),

@@ -8,6 +8,8 @@ const FORMATS = {
   xlsx: { ext: 'xlsx', filter: 'Excel' },
   csv: { ext: 'csv', filter: 'CSV' },
   moxfield: { ext: 'csv', filter: 'Moxfield CSV' },
+  // Lista de texto ("2 Aang's Journey (TLA) 1 *F*") para pegar en el Bulk Edit de un mazo o lista de Moxfield.
+  moxfieldText: { ext: 'txt', filter: 'Moxfield text list' },
 };
 
 // Una fila por carta y versión. mode 'owned': las copias que tienes de cada versión.
@@ -49,11 +51,19 @@ function exportFile(rows, format, { mode = 'owned' } = {}) {
     return csv([header, ...rows.map((r) => [r.quantity, 0, r.name, r.setCode.toLowerCase(), 'Near Mint', 'English',
       ['foil', 'etched'].includes(r.variantKey) ? r.variantKey : '', '', '', r.number, 'False', 'False', ''])]);
   }
+  if (format === 'moxfieldText') return Buffer.from(moxfieldText(rows), 'utf8');
   // Nombre + set + número + cantidad: las columnas que reconocen los importadores CSV genéricos de colecciones.
   const header = ['Quantity', 'Name', 'Set', 'Set Code', 'Card Number', 'Variant', 'Rarity'];
   const table = [header, ...rows.map((r) => [r.quantity, r.name, r.setName, r.setCode, r.number, r.variant, r.rarity])];
   if (format === 'csv') return csv(table);
   return xlsx(table, { sheetName: mode === 'missing' ? 'Missing' : 'Collection', widths: [10, 34, 30, 12, 13, 26, 22] });
+}
+
+// Una carta por línea: cantidad, nombre, (SET) y nº de coleccionista; *F* = foil y *E* = etched.
+function moxfieldText(rows) {
+  const finish = { foil: ' *F*', etched: ' *E*' };
+  return rows.map((r) => `${r.quantity} ${r.name} (${r.setCode.toUpperCase()}) ${r.number}${finish[r.variantKey] || ''}`)
+    .join('\r\n') + '\r\n';
 }
 
 // BOM para que Excel abra bien las tildes; comillas solo cuando hacen falta.

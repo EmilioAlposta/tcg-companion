@@ -722,6 +722,8 @@ function exportButton(tcg, collection) {
     '⭳ Export');
 }
 
+  { key: 'moxfieldText', label: 'Moxfield (text)', tcg: 'magic', copy: true,
+    hint: 'One card per line, like "2 Aang\'s Journey (TLA) 1", with *F* for foil and *E* for etched. Copy it and paste it in a Moxfield deck or list › Bulk Edit.' },
 function openExportDialog(tcg, collection) {
   const opts = { mode: 'owned', splitVariants: true, format: 'xlsx' };
   const withVariants = tcg.id !== 'onepiece'; // en One Piece cada versión ya es una carta distinta
@@ -737,7 +739,7 @@ function openExportDialog(tcg, collection) {
   const group = (title, options, key) => el('div', { class: 'export-group' },
     el('div', { class: 'filter-field-label' }, title),
     el('div', { class: 'chips' }, options.map(([value, label]) =>
-      optionChip(label, opts[key] === value, () => { opts[key] = value; render(); }))));
+      optionChip(label, opts[key] === value, () => { opts[key] = value; render(); renderActions(); }))));
 
   const render = () => {
     const formats = EXPORT_FORMATS.filter((f) => !f.tcg || f.tcg === tcg.id);
@@ -790,8 +792,28 @@ function openExportDialog(tcg, collection) {
   const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
     el('div', { class: 'dialog export-dialog', role: 'dialog' },
       el('h3', {}, 'Export'),
+  // Copiar: sin ventana de guardar; el texto va directo al portapapeles.
+  const copy = async () => {
+    busy = true;
+    loading('Copying the list…');
+    try {
+      const [result] = await Promise.all([
+        window.tcg.copyExport({ tcg: tcg.id, collectionId: collection?.id || null, ...opts }), wait(400)]);
+      setChildren(body, el('p', {}, `Copied ${result.rows} line${result.rows === 1 ? '' : 's'} to the clipboard.`),
+        el('p', { class: 'muted' }, 'In Moxfield, open the deck or list, choose Bulk Edit and paste it.'));
+      setChildren(actions, el('button', { class: 'btn', onclick: close }, 'Done'));
+    } catch (err) {
+      render();
+      body.append(el('p', { class: 'error' }, `Could not copy: ${err.message || err}`));
+      renderActions();
+    } finally {
+      busy = false;
+    }
+  };
       el('p', { class: 'muted' }, collection ? collection.name : `Every ${tcg.name} card you own, from all sets`),
       body,
+    EXPORT_FORMATS.find((f) => f.key === opts.format)?.copy
+      ? el('button', { class: 'chip', onclick: copy }, '📋 Copy to clipboard') : null,
       actions));
   render();
   renderActions();
