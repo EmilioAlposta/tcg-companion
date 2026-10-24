@@ -1,0 +1,409 @@
+// Idioma de la interfaz (inglés o español). Los textos se escriben en inglés en el código y tr() los traduce;
+// si falta una traducción se queda el inglés. {nombre} se sustituye por vars.nombre.
+// Los nombres de cartas y sus datos (tipos, rarezas, versiones…) llegan de las APIs y no se traducen.
+const i18n = (() => {
+  const STORAGE_KEY = 'lang';
+  let lang = 'en';
+  try { lang = localStorage.getItem(STORAGE_KEY) === 'es' ? 'es' : 'en'; } catch { /* sin almacenamiento: inglés */ }
+
+  const ES = {
+    // Cabecera, pie y menú principal
+    'Back': 'Volver',
+    'Card data:': 'Datos de cartas:',
+    'Show the database in the file explorer': 'Mostrar la base de datos en el explorador de archivos',
+    '{list} and {last}': '{list} y {last}',
+    'Choose your TCG': 'Elige tu TCG',
+    'Which collection do you want to manage?': '¿Qué colección quieres gestionar?',
+    'My decks': 'Mis mazos',
+    'Build decks for {tcgs}': 'Arma mazos de {tcgs}',
+    'Open': 'Abrir',
+    '{n} deck': '{n} mazo',
+    '{n} decks': '{n} mazos',
+
+    // Settings
+    'Settings': 'Configuración',
+    'Sound, language and the TCGs you collect': 'Sonido, idioma y los TCG que coleccionas',
+    'General': 'General',
+    'Sound effects': 'Efectos de sonido',
+    'Sounds when browsing, marking cards and using filters.': 'Sonidos al navegar, marcar cartas y usar los filtros.',
+    'On': 'Activados',
+    'Off': 'Desactivados',
+    'Language': 'Idioma',
+    'Language of the app. Card names and card data stay as the source gives them.':
+      'Idioma de la app. Los nombres y datos de las cartas se muestran tal como los da cada fuente.',
+    'TCGs': 'TCG',
+    'Hide the TCGs you do not collect: they disappear from the main menu. Your cards and decks are kept.':
+      'Oculta los TCG que no coleccionas: desaparecen del menú principal. Tus cartas y mazos se conservan.',
+    'Show': 'Mostrar',
+    'Hide': 'Ocultar',
+    'At least one TCG stays visible': 'Al menos un TCG queda visible',
+
+    // Colecciones de un TCG y buscador
+    'Loading…': 'Cargando…',
+    'Loading… (the first time it downloads every One Piece card, this takes a few seconds)':
+      'Cargando… (la primera vez descarga todas las cartas de One Piece, tarda unos segundos)',
+    'Could not download the cards. Are you connected to the internet?': 'No se pudieron descargar las cartas. ¿Tienes conexión a internet?',
+    'Retry': 'Reintentar',
+    '{owned} / {total} Pokémon collected': '{owned} / {total} Pokémon conseguidos',
+    'Not downloaded yet': 'Aún sin descargar',
+    'No sets with cards yet. Search for a card above or use View sets to open a set.':
+      'Aún no hay sets con cartas. Busca una carta arriba o usa Ver sets para abrir un set.',
+    'No collections yet. Use Create collection to group cards from any set.':
+      'Aún no hay colecciones. Usa Crear colección para agrupar cartas de cualquier set.',
+    'Collections': 'Colecciones',
+    'Create collection': 'Crear colección',
+    'Sets': 'Sets',
+    'View sets': 'Ver sets',
+    '{owned} / {total} cards': '{owned} / {total} cartas',
+    '{n} card': '{n} carta',
+    '{n} cards': '{n} cartas',
+    'No cards yet': 'Aún sin cartas',
+    '{n} hidden': '{n} ocultas',
+    'Search cards to add, e.g. {example}': 'Busca cartas para agregar, p. ej. {example}',
+    'Searching…': 'Buscando…',
+    'Search failed: {error}': 'Falló la búsqueda: {error}',
+    '{n} card found': '{n} carta encontrada',
+    '{n} cards found': '{n} cartas encontradas',
+    '{n} shown': '{n} visibles',
+    'No cards match these filters.': 'Ninguna carta coincide con estos filtros.',
+    'No cards found.': 'No se encontraron cartas.',
+    'Clear': 'Limpiar',
+    'Click a card to mark it as owned.': 'Haz clic en una carta para marcarla como tuya.',
+    'Search': 'Buscar',
+
+    // Todos los sets
+    'All sets': 'Todos los sets',
+    'Loading sets…': 'Cargando sets…',
+    'Could not download the set list. Are you connected to the internet?':
+      'No se pudo descargar la lista de sets. ¿Tienes conexión a internet?',
+    'No sets match.': 'Ningún set coincide.',
+    'Filter sets…': 'Filtrar sets…',
+    '{n} sets · {withCards} with cards': '{n} sets · {withCards} con cartas',
+    'Update set list': 'Actualizar lista de sets',
+    'No logo': 'Sin logo',
+
+    // Filtros avanzados
+    'Owned': 'Las tengo',
+    'Not owned': 'No las tengo',
+    'Hidden ({n})': 'Ocultas ({n})',
+    'Advanced filters': 'Filtros avanzados',
+    'Filters': 'Filtros',
+    'Copies: {n}+': 'Copias: {n}+',
+    'Remove this filter': 'Quitar este filtro',
+    'Clear all': 'Quitar todos',
+    'All': 'Todas',
+    '{n} selected': '{n} elegidos',
+    'Clear selection': 'Quitar selección',
+    'Any': 'Cualquiera',
+    'Fewer copies': 'Menos copias',
+    'More copies': 'Más copias',
+    'Collection': 'Colección',
+    'Min. copies': 'Copias mínimas',
+    'There is no card data to filter by type, rarity or color here.':
+      'Aquí no hay datos de cartas para filtrar por tipo, rareza o color.',
+    'Leave a field empty to not filter by it.': 'Deja un campo vacío para no filtrar por él.',
+    'Cancel': 'Cancelar',
+    'Apply': 'Aplicar',
+    'Card type': 'Tipo de carta',
+    'Trainer / Energy type': 'Tipo de entrenador / energía',
+    'Supertype': 'Supertipo',
+    'Pokémon type': 'Tipo de Pokémon',
+    'Color': 'Color',
+    'Rarity': 'Rareza',
+    'Stage': 'Fase',
+    'Mechanic': 'Mecánica',
+    'Attribute': 'Atributo',
+    'Version': 'Versión',
+    'Frame / Art': 'Marco / arte',
+    'Set': 'Set',
+    'Standard': 'Estándar',
+    'Alternate art': 'Arte alternativo',
+    'Regular': 'Normal',
+    'Borderless': 'Sin bordes',
+    'Extended art': 'Arte extendido',
+    'Full art': 'Arte completo',
+    'Old frame': 'Marco antiguo',
+
+    // Un set
+    'Updating cards from {source}…': 'Actualizando cartas desde {source}…',
+    'Loading cards…': 'Cargando cartas…',
+    '{owned} / {total} collected': '{owned} / {total} conseguidas',
+    'Add back to set': 'Volver a agregar al set',
+    'Hide from set': 'Ocultar del set',
+    'Remove from collection': 'Quitar de la colección',
+    'This collection has no cards yet. Use Edit collection to add some.':
+      'Esta colección aún no tiene cartas. Usa Editar colección para agregar algunas.',
+    'No cards match this filter.': 'Ninguna carta coincide con este filtro.',
+    'Edit collection': 'Editar colección',
+    'Update from API': 'Actualizar desde la API',
+    'Delete collection': 'Borrar colección',
+    'Click a card to mark or unmark it. Hover over it and use ⤢ to view it larger, or ⋮ to change the quantity and more options.':
+      'Haz clic en una carta para marcarla o desmarcarla. Pasa el ratón por encima y usa ⤢ para verla en grande, o ⋮ para cambiar la cantidad y más opciones.',
+    'View or edit the notes': 'Ver o editar las notas',
+    'Notes': 'Notas',
+    'Write anything about this set…': 'Escribe lo que quieras sobre este set…',
+    'Save': 'Guardar',
+
+    // Exportar
+    'Export the cards to a file': 'Exportar las cartas a un archivo',
+    'Export': 'Exportar',
+    'Export…': 'Exportar…',
+    'Export collection': 'Exportar colección',
+    'Cards': 'Cartas',
+    'Cards I own': 'Las que tengo',
+    'Cards I am missing': 'Las que me faltan',
+    'Versions (non-foil, foil, etched)': 'Versiones (non-foil, foil, etched)',
+    'Versions (normal, holo, reverse holo, stamped…)': 'Versiones (normal, holo, reverse holo, con sello…)',
+    'Each missing version': 'Cada versión que falta',
+    'Only cards with no copies': 'Solo cartas sin ninguna copia',
+    'Format': 'Formato',
+    'Moxfield (text)': 'Moxfield (texto)',
+    'An .xlsx spreadsheet with set, number, name, version and quantity.':
+      'Una hoja de cálculo .xlsx con set, número, nombre, versión y cantidad.',
+    'Quantity, name, set and card number: the columns most collection sites read when importing a CSV.':
+      'Cantidad, nombre, set y número de carta: las columnas que leen la mayoría de webs de colecciones al importar un CSV.',
+    'Ready for Moxfield: Collection › Import › CSV. Foil and etched copies keep their finish.':
+      'Listo para Moxfield: Collection › Import › CSV. Las copias foil y etched conservan su acabado.',
+    'One card per line, like "2 Aang\'s Journey (TLA) 1", with *F* for foil and *E* for etched. Copy it and paste it in a Moxfield deck or list › Bulk Edit.':
+      'Una carta por línea, como "2 Aang\'s Journey (TLA) 1", con *F* para foil y *E* para etched. Cópiala y pégala en un mazo o lista de Moxfield › Bulk Edit.',
+    'Choose where to save the file…': 'Elige dónde guardar el archivo…',
+    'Generating the file…': 'Generando el archivo…',
+    'Exported {n} row to:': 'Se exportó {n} fila a:',
+    'Exported {n} rows to:': 'Se exportaron {n} filas a:',
+    'Show in folder': 'Mostrar en la carpeta',
+    'Done': 'Listo',
+    'Could not export: {error}': 'No se pudo exportar: {error}',
+    'Copying the list…': 'Copiando la lista…',
+    'Copied {n} line to the clipboard.': 'Se copió {n} línea al portapapeles.',
+    'Copied {n} lines to the clipboard.': 'Se copiaron {n} líneas al portapapeles.',
+    'In Moxfield, open the deck or list, choose Bulk Edit and paste it.':
+      'En Moxfield, abre el mazo o la lista, elige Bulk Edit y pégala.',
+    'Could not copy: {error}': 'No se pudo copiar: {error}',
+    'Copy to clipboard': 'Copiar al portapapeles',
+    'Every {tcg} card you own, from all sets': 'Todas las cartas de {tcg} que tienes, de todos los sets',
+
+    // Colecciones custom
+    'Add cards': 'Agregar cartas',
+    'New collection': 'Nueva colección',
+    'Loading collection…': 'Cargando colección…',
+    'Cards in this collection ({n})': 'Cartas de esta colección ({n})',
+    'No cards yet. Use Add cards to search for some.': 'Aún no hay cartas. Usa Agregar cartas para buscar algunas.',
+    'In the collection (click to remove it)': 'En la colección (clic para quitarla)',
+    'Click to add it to the collection': 'Clic para agregarla a la colección',
+    'Remove from the collection': 'Quitar de la colección',
+    'Add to the collection': 'Agregar a la colección',
+    'No image': 'Sin imagen',
+    'Actions': 'Acciones',
+    'Click a card to add it to the collection or remove it. Use ⋮ on the ones in it to set how many you own.':
+      'Haz clic en una carta para agregarla a la colección o quitarla. Usa ⋮ en las que ya están para indicar cuántas tienes.',
+    'Collection name, e.g. My {example} cards': 'Nombre de la colección, p. ej. Mis cartas de {example}',
+    'Give the collection a name.': 'Ponle un nombre a la colección.',
+    'Save changes': 'Guardar cambios',
+    'Name': 'Nombre',
+    'Click a card to mark whether you own it. Use ⋮ to remove it from the collection.':
+      'Haz clic en una carta para marcar si la tienes. Usa ⋮ para quitarla de la colección.',
+    'Delete "{name}"? The cards you own stay marked in their sets.':
+      '¿Borrar "{name}"? Las cartas que tienes siguen marcadas en sus sets.',
+    'this collection': 'esta colección',
+    'Delete': 'Borrar',
+
+    // Mazos: formatos y reglas
+    'Casual': 'Casual',
+    'Expanded': 'Expandido',
+    'Commander': 'Comandante',
+    'Commanders': 'Comandantes',
+    'Leader': 'Líder',
+    'Leaders': 'Líderes',
+    '100 cards including the commander, one copy of each card (basic lands aside), all in the commander\'s colors.':
+      '100 cartas contando el comandante, una copia de cada carta (salvo las tierras básicas), todas de los colores del comandante.',
+    '1 leader plus {size} cards, up to {max} copies of each card, all in the leader\'s colors.':
+      '1 líder más {size} cartas, hasta {max} copias de cada carta, todas de los colores del líder.',
+    '1 leader, all in the leader\'s colors.': '1 líder, y todas las cartas de los colores del líder.',
+    '{size} cards, up to {max} copies of each card (basic Energy aside).':
+      '{size} cartas, hasta {max} copias de cada carta (salvo la Energía básica).',
+    'At least {min} cards, up to {max} copies of each card (basic lands aside). Card legality comes from Scryfall.':
+      'Al menos {min} cartas, hasta {max} copias de cada carta (salvo las tierras básicas). La legalidad de las cartas viene de Scryfall.',
+    'No deck-building rules: any cards, any number of copies.': 'Sin reglas de construcción: cualquier carta, cualquier número de copias.',
+    '{list} and {n} more': '{list} y {n} más',
+    'Choose a {slot}.': 'Elige un {slot}.',
+    'The deck needs exactly {size} cards including the commander: it has {total}.':
+      'El mazo necesita exactamente {size} cartas contando el comandante: tiene {total}.',
+    'The deck needs exactly {size} cards plus the leader: it has {total}.':
+      'El mazo necesita exactamente {size} cartas más el líder: tiene {total}.',
+    'The deck needs exactly {size} cards: it has {total}.': 'El mazo necesita exactamente {size} cartas: tiene {total}.',
+    'The deck needs at least {min} cards: it has {total}.': 'El mazo necesita al menos {min} cartas: tiene {total}.',
+    '{n} copies: at most {max} allowed': '{n} copias: se permiten {max} como máximo',
+    '(basic lands aside)': '(salvo las tierras básicas)',
+    '(basic Energy aside)': '(salvo la Energía básica)',
+    'Only one copy of each card{basics}: {cards}.': 'Solo una copia de cada carta{basics}: {cards}.',
+    'At most {max} copies of each card{basics}: {cards}.': 'Como máximo {max} copias de cada carta{basics}: {cards}.',
+    'Not legal in {format}: {cards}.': 'No legales en {format}: {cards}.',
+    'Not legal in {format}': 'No legal en {format}',
+    'Outside the commander\'s colors: {cards}.': 'Fuera de los colores del comandante: {cards}.',
+    'Outside the commander\'s colors': 'Fuera de los colores del comandante',
+    'Leaders can\'t go in the main deck: {cards}.': 'Los líderes no pueden ir en el mazo principal: {cards}.',
+    'Leaders can\'t go in the main deck': 'Los líderes no pueden ir en el mazo principal',
+    'Not in the leader\'s colors: {cards}.': 'No son de los colores del líder: {cards}.',
+    'Not in the leader\'s colors': 'No es de los colores del líder',
+
+    // Lista de mazos
+    'In your collection: {n}': 'En tu colección: {n}',
+    'Not in your collection': 'No está en tu colección',
+    '{owned} / {total} owned': '{owned} / {total} las tienes',
+    'Loading decks…': 'Cargando mazos…',
+    'Could not load the decks.': 'No se pudieron cargar los mazos.',
+    'All ({n})': 'Todos ({n})',
+    'No decks yet. Use Create deck to build your first one.': 'Aún no hay mazos. Usa Crear mazo para armar el primero.',
+    'New deck': 'Nuevo mazo',
+    'Create deck': 'Crear mazo',
+    'A card added to a deck is not added to your collection: the deck shows whether you own it or not.':
+      'Una carta agregada a un mazo no se agrega a tu colección: el mazo muestra si la tienes o no.',
+    'e.g. Mono red aggro': 'p. ej. Mono rojo aggro',
+    'Give the deck a name.': 'Ponle un nombre al mazo.',
+    'Choose a name, the TCG and the format. You can change the name and format later.':
+      'Elige un nombre, el TCG y el formato. El nombre y el formato se pueden cambiar después.',
+
+    // Un mazo
+    'Loading deck…': 'Cargando mazo…',
+    'Could not load the deck.': 'No se pudo cargar el mazo.',
+    'This deck no longer exists.': 'Este mazo ya no existe.',
+    'Add 1 copy': 'Agregar 1 copia',
+    'Remove 1 copy': 'Quitar 1 copia',
+    'Mark as not owned in this deck': 'Marcar como que no la tengo en este mazo',
+    'Mark as owned in this deck': 'Marcar como que la tengo en este mazo',
+    'Follow my collection again': 'Volver a seguir mi colección',
+    'Set as deck cover': 'Usar como portada del mazo',
+    'Set as {slot}': 'Usar como {slot}',
+    'Move to the main deck': 'Pasar al mazo principal',
+    'Remove from deck': 'Quitar del mazo',
+    'Not owned in this deck': 'No la tengo en este mazo',
+    'Owned in this deck': 'La tengo en este mazo',
+    'You have {have} of {n}': 'Tienes {have} de {n}',
+    'You have {have} (another print)': 'Tienes {have} (otra impresión)',
+    'You have {have}': 'Tienes {have}',
+    'Owned (click to mark it as not owned in this deck)': 'La tienes (clic para marcar que no la tienes en este mazo)',
+    'Not owned (click to mark it as owned in this deck)': 'No la tienes (clic para marcar que la tienes en este mazo)',
+    'Remove a copy': 'Quitar una copia',
+    'Remove from the deck': 'Quitar del mazo',
+    'Add a copy': 'Agregar una copia',
+    'Deck cover': 'Portada del mazo',
+    '{format} check': 'Revisión de {format}',
+    'Ready for {format}': 'Listo para {format}',
+    'Add a second commander (Partner, Background…)': 'Agregar un segundo comandante (Partner, Background…)',
+    'Add partner': 'Agregar partner',
+    'Change {slot}': 'Cambiar {slot}',
+    'Choose {slot}': 'Elegir {slot}',
+    'Deck ({n})': 'Mazo ({n})',
+    'Creatures': 'Criaturas',
+    'Planeswalkers': 'Planeswalkers',
+    'Battles': 'Batallas',
+    'Instants': 'Instantáneos',
+    'Sorceries': 'Conjuros',
+    'Artifacts': 'Artefactos',
+    'Enchantments': 'Encantamientos',
+    'Lands': 'Tierras',
+    'Trainers': 'Entrenadores',
+    'Energy': 'Energía',
+    'Characters': 'Personajes',
+    'Events': 'Eventos',
+    'Stages': 'Escenarios',
+    'Other': 'Otras',
+    'This card is the deck\'s leader': 'Esta carta es el líder del mazo',
+    'This card is the deck\'s commander': 'Esta carta es el comandante del mazo',
+    'Click to add a copy to the deck': 'Clic para agregar una copia al mazo',
+    '×{n} in deck': '×{n} en el mazo',
+    'Click a card (or +) to add a copy, − to take one out. Your collection does not change.':
+      'Haz clic en una carta (o en +) para agregar una copia, en − para quitar una. Tu colección no cambia.',
+    'Edit deck': 'Editar mazo',
+    'Delete deck': 'Borrar mazo',
+    'Delete "{name}"? Your collection does not change: the cards you own stay marked in their sets.':
+      '¿Borrar "{name}"? Tu colección no cambia: las cartas que tienes siguen marcadas en sus sets.',
+    'Click a card to mark whether you own it in this deck: your collection does not change. Hover over it and use − / + to change the copies, or ⋮ for the deck cover and more.':
+      'Haz clic en una carta para marcar si la tienes en este mazo: tu colección no cambia. Pasa el ratón por encima y usa − / + para cambiar las copias, o ⋮ para la portada del mazo y más.',
+    'Search commanders, e.g. Atraxa': 'Busca comandantes, p. ej. Atraxa',
+    'Search leaders, e.g. Luffy': 'Busca líderes, p. ej. Luffy',
+    'No commanders found.': 'No se encontraron comandantes.',
+    'No leaders found.': 'No se encontraron líderes.',
+    'Click a card to make it the {slot}.': 'Haz clic en una carta para que sea el {slot}.',
+    'Close': 'Cerrar',
+
+    // Menú ⋮ y cartas
+    'Qty:': 'Cant.:',
+    'Add 1': 'Agregar 1',
+    'Add several': 'Agregar varias',
+    'Remove 1': 'Quitar 1',
+    'Remove all ({n})': 'Quitar todas ({n})',
+    'View price': 'Ver precio',
+    'View all arts': 'Ver todos los artes',
+    'View on {site}': 'Ver en {site}',
+    'You have {n} (change the quantity from ⋮)': 'Tienes {n} (cambia la cantidad desde ⋮)',
+    'Owned (click to unmark)': 'La tienes (clic para desmarcar)',
+    'Missing (click to mark)': 'Te falta (clic para marcar)',
+    'View larger': 'Ver en grande',
+    'Looking for other arts…': 'Buscando otros artes…',
+    'All arts': 'Todos los artes',
+    '{n} art': '{n} arte',
+    '{n} arts': '{n} artes',
+    'Click an art to mark it as owned. The highlighted one is this card.':
+      'Haz clic en un arte para marcarlo como tuyo. El resaltado es esta carta.',
+    'Could not load the other arts: {error}': 'No se pudieron cargar los otros artes: {error}',
+    'you currently have {n}': 'ahora tienes {n}',
+    'How many do you want to add?': '¿Cuántas quieres agregar?',
+    'Add': 'Agregar',
+
+    // Precios
+    'Loading prices…': 'Cargando precios…',
+    'Prices': 'Precios',
+    'There are no prices for this card yet.': 'Todavía no hay precios para esta carta.',
+    'The highlighted one is this card.': 'La resaltada es esta carta.',
+    'Could not load the prices: {error}': 'No se pudieron cargar los precios: {error}',
+    'Market': 'Mercado',
+    'Low': 'Mínimo',
+    'Mid': 'Medio',
+    'High': 'Máximo',
+    'Trend': 'Tendencia',
+    'Average': 'Promedio',
+    '30-day average': 'Promedio de 30 días',
+    'Lowest listing': 'Oferta más barata',
+    'No price': 'Sin precio',
+
+    // Pokédex
+    'Loading the Pokédex… (the first time it downloads every Full Art card, this takes a few seconds)':
+      'Cargando la Pokédex… (la primera vez descarga todas las cartas Full Art, tarda unos segundos)',
+    'Could not download the Pokédex. Are you connected to the internet?': 'No se pudo descargar la Pokédex. ¿Tienes conexión a internet?',
+    'No Pokémon match.': 'Ningún Pokémon coincide.',
+    'Search by name or number…': 'Buscar por nombre o número…',
+    'Collected': 'Conseguidos',
+    'Missing': 'Faltan',
+    'Greyed out: Pokémon without any Full Art card (those with promos can still be opened). Click a Pokémon to see its cards and mark the ones you own.':
+      'En gris: Pokémon sin ninguna carta Full Art (los que tienen promos se pueden abrir igual). Haz clic en un Pokémon para ver sus cartas y marcar las que tienes.',
+    '{name}: no Full Art cards': '{name}: sin cartas Full Art',
+    '{name}: {fullArt} Full Art · {promos} promos · you own {owned}': '{name}: {fullArt} Full Art · {promos} promos · tienes {owned}',
+    '{n} promo': '{n} promo',
+    '{n} promos': '{n} promos',
+    'Promos only': 'Solo promos',
+    'Promos': 'Promos',
+    'Loading cards and prices…': 'Cargando cartas y precios…',
+    'Could not load the cards.': 'No se pudieron cargar las cartas.',
+    '{owned} / {total} Full Art cards collected': '{owned} / {total} cartas Full Art conseguidas',
+    '{owned} / {total} promos': '{owned} / {total} promos',
+    'This Pokémon has no Full Art cards.': 'Este Pokémon no tiene cartas Full Art.',
+    'Mark the cards you own. The Pokédex will show the most expensive one you own. Hover over a card and use ⤢ to view it larger.':
+      'Marca las cartas que tienes. La Pokédex mostrará la más cara que tengas. Pasa el ratón por una carta y usa ⤢ para verla en grande.',
+    'All promos for this Pokémon: the API does not say which ones are Full Art, so all of them are shown.':
+      'Todas las promos de este Pokémon: la API no dice cuáles son Full Art, así que se muestran todas.',
+  };
+
+  return {
+    get lang() { return lang; },
+    setLang(value) {
+      lang = value === 'es' ? 'es' : 'en';
+      try { localStorage.setItem(STORAGE_KEY, lang); } catch { /* no se recuerda, da igual */ }
+    },
+    tr(text, vars) {
+      const s = (lang === 'es' && ES[text]) || text;
+      return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s;
+    },
+  };
+})();
+const tr = (text, vars) => i18n.tr(text, vars);

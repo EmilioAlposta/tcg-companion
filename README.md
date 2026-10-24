@@ -76,6 +76,14 @@ En los sets, las colecciones custom y los buscadores de cartas, el botón **Filt
 
 Los filtros aplicados aparecen como etiquetas que se pueden quitar una a una sin volver a abrir el diálogo.
 
+### Configuración
+
+Desde **Settings**, en el menú principal:
+
+- **Efectos de sonido:** activarlos o desactivarlos.
+- **Idioma:** inglés o español. Cambia todos los textos de la app; los nombres y datos de las cartas (tipos, rarezas, versiones) se muestran tal como los da cada API.
+- **TCG visibles:** ocultar del menú principal los TCG que no coleccionas (por defecto se ven los tres). Sus cartas y mazos no se borran, y siempre queda al menos uno visible.
+
 ## Capturas
 
 | Elegir TCG | Colecciones de Pokémon |
@@ -128,7 +136,7 @@ Genera un instalador `.exe` en `dist/`.
 ```
 ├── main.js                 Proceso principal de Electron (ventana + IPC)
 ├── preload.js              Puente seguro entre la interfaz y el proceso principal
-├── renderer/               Interfaz (index.html, styles.css, app.js)
+├── renderer/               Interfaz (index.html, styles.css, app.js, sounds.js e i18n.js con los textos en español)
 ├── src/
 │   ├── db.js               Esquema y consultas SQLite
 │   ├── pokemon-api.js      Cliente de TCGdex y PokeAPI

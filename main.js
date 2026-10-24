@@ -221,13 +221,13 @@ function registerIpc() {
 
   // Exportar en dos pasos: primero se elige dónde guardar (la app muestra la pantalla de carga después)
   // y luego se genera el fichero. Sin collectionId se exportan las cartas que tienes de todo el TCG.
-  ipcMain.handle('export:choosePath', async (e, { tcg, collectionId, format, mode = 'owned' }) => {
+  ipcMain.handle('export:choosePath', async (e, { tcg, collectionId, format, mode = 'owned', dialogTitle }) => {
     checkExportFormat(tcg, format);
     const col = collectionId ? db.getCollection(collectionId) : null;
     const tcgName = { pokemon: 'Pokemon', onepiece: 'One Piece', magic: 'Magic' }[tcg] || tcg;
     const title = `${col ? col.name : `${tcgName} collection`} - ${col ? mode : 'owned'}`.replace(/[\\/:*?"<>|]/g, '');
     const { canceled, filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), {
-      title: 'Export collection',
+      title: dialogTitle || 'Export collection', // viene traducido de la app
       defaultPath: path.join(app.getPath('documents'), `${title}.${FORMATS[format].ext}`),
       filters: [{ name: FORMATS[format].filter, extensions: [FORMATS[format].ext] }],
     });

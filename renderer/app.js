@@ -30,9 +30,34 @@ backBtn.addEventListener('click', () => {
 
 function setChrome(crumb, tcg) {
   breadcrumb.textContent = crumb;
-  dataSource.textContent = tcg ? tcg.source : TCGS.filter((t) => t.source).map((t) => t.source).join(' · ');
+  dataSource.textContent = tcg ? tcg.source : visibleTcgs().map((t) => t.source).join(' · ');
   backBtn.classList.toggle('hidden', navStack.length < 2);
 }
+
+// Textos fijos de index.html: se ponen desde aquí para que cambien con el idioma.
+function renderStaticTexts() {
+  document.documentElement.lang = i18n.lang;
+  backBtn.title = tr('Back');
+  document.getElementById('data-source-label').textContent = tr('Card data:');
+  document.getElementById('db-path').title = tr('Show the database in the file explorer');
+}
+
+// ---------- TCGs ocultos (Settings) ----------
+// Los TCG que no coleccionas se pueden ocultar del menú principal; sus datos no se borran.
+const hiddenTcgs = (() => {
+  const STORAGE_KEY = 'hidden-tcgs';
+  let hidden = [];
+  try { hidden = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { /* sin almacenamiento: se ven todos */ }
+  return {
+    has: (id) => hidden.includes(id),
+    set(id, value) {
+      hidden = value ? [...new Set([...hidden, id])] : hidden.filter((x) => x !== id);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(hidden)); } catch { /* no se recuerda, da igual */ }
+    },
+  };
+})();
+const visibleTcgs = () => TCGS.filter((t) => t.enabled && !hiddenTcgs.has(t.id));
+const listNames = (names) => (names.length > 1 ? tr('{list} and {last}', { list: names.slice(0, -1).join(', '), last: names.at(-1) }) : names[0] || '');
 
 // Como node.replaceChildren, pero ignora null/undefined (replaceChildren los escribiría como texto "null").
 function setChildren(node, ...children) {
@@ -61,27 +86,29 @@ function cardImage(url, quality = 'low') {
 
 // ---------- Vista 1: elegir TCG ----------
 function showHome() {
-  setChrome('Choose your TCG');
+  setChrome(tr('Choose your TCG'));
+  const buildText = tr('Build decks for {tcgs}', { tcgs: listNames(visibleTcgs().map((t) => t.name)) });
   const decksEntry = el('button', { class: 'decks-entry', onclick: () => navigate(showDecks) },
     el('div', { class: 'decks-entry-covers' }),
     el('div', { class: 'decks-entry-text' },
-      el('div', { class: 'collection-name' }, 'My decks'),
-      el('div', { class: 'collection-meta' }, 'Build decks for Magic, Pokémon and One Piece')),
-    el('span', { class: 'decks-entry-go' }, 'Open'));
+      el('div', { class: 'collection-name' }, tr('My decks')),
+      el('div', { class: 'collection-meta' }, buildText)),
+    el('span', { class: 'decks-entry-go' }, tr('Open')));
+  const settingsEntry = el('button', { class: 'decks-entry settings-entry', onclick: () => navigate(showSettings) },
+    el('div', { class: 'settings-entry-icon' }, '⚙'),
+    el('div', { class: 'decks-entry-text' },
+      el('div', { class: 'collection-name' }, tr('Settings')),
+      el('div', { class: 'collection-meta' }, tr('Sound, language and the TCGs you collect'))),
+    el('span', { class: 'decks-entry-go' }, tr('Open')));
   setChildren(view,
-    el('h1', { class: 'title' }, 'Which collection do you want to manage?'),
+    el('h1', { class: 'title' }, tr('Which collection do you want to manage?')),
     el('div', { class: 'tcg-grid' },
-      TCGS.map((t) =>
-        el('button', {
-          class: 'tcg-tile' + (t.enabled ? '' : ' disabled'),
-          disabled: !t.enabled,
-          onclick: () => navigate(showTcg, t),
-        },
+      visibleTcgs().map((t) =>
+        el('button', { class: 'tcg-tile', onclick: () => navigate(showTcg, t) },
           el('img', { src: t.image, alt: t.name }),
-          el('span', { class: 'tcg-name' }, t.name),
-          t.enabled ? null : el('span', { class: 'soon' }, 'Coming soon'))
+          el('span', { class: 'tcg-name' }, t.name))
       )),
-    el('div', { class: 'home-decks' }, decksEntry)
+    el('div', { class: 'home-decks' }, decksEntry, settingsEntry)
   );
   // El resumen de los mazos llega después: la pantalla se pinta sin esperar a la base de datos.
   window.tcg.listDecks().then((decks) => {
@@ -89,9 +116,58 @@ function showHome() {
     setChildren(decksEntry.querySelector('.decks-entry-covers'),
       covers.map((c) => el('img', { src: cardImage(c.image_url), alt: '' })));
     decksEntry.querySelector('.collection-meta').textContent = decks.length
-      ? `${decks.length} deck${decks.length === 1 ? '' : 's'} · ${[...new Set(decks.map((d) => tcgById(d.tcg).name))].join(', ')}`
-      : 'Build decks for Magic, Pokémon and One Piece';
+      ? `${tr(decks.length === 1 ? '{n} deck' : '{n} decks', { n: decks.length })} · ${[...new Set(decks.map((d) => tcgById(d.tcg).name))].join(', ')}`
+      : buildText;
   }).catch(() => {});
+}
+
+// ---------- Settings ----------
+function showSettings() {
+  setChrome(tr('Settings'));
+  // Cada ajuste: título, explicación y, a la derecha, sus opciones.
+  const row = (title, text, control) => el('div', { class: 'settings-row' },
+    el('div', { class: 'settings-text' },
+      el('div', { class: 'settings-title' }, title),
+      el('div', { class: 'collection-meta' }, text)),
+    control);
+  const chips = (options, active, onPick) => el('div', { class: 'chips' },
+    options.map(([value, label]) => optionChip(label, value === active, () => onPick(value))));
+
+  const tcgRows = TCGS.filter((t) => t.enabled).map((t) => {
+    const shown = !hiddenTcgs.has(t.id);
+    // Siempre queda al menos un TCG a la vista.
+    const last = shown && visibleTcgs().length === 1;
+    return el('div', { class: 'settings-tcg' + (shown ? '' : ' off') },
+      el('img', { src: t.image, alt: '' }),
+      el('span', { class: 'settings-tcg-name' }, t.name),
+      last ? el('span', { class: 'muted settings-tcg-note' }, tr('At least one TCG stays visible')) : null,
+      chips([[true, tr('Show')], [false, tr('Hide')]], shown, (v) => {
+        if (v === shown || last) return;
+        hiddenTcgs.set(t.id, !v);
+        showSettings();
+      }));
+  });
+
+  setChildren(view,
+    el('h1', { class: 'title' }, tr('Settings')),
+    el('section', { class: 'settings-section' },
+      el('h2', { class: 'section-title' }, tr('General')),
+      row(tr('Sound effects'), tr('Sounds when browsing, marking cards and using filters.'),
+        chips([[true, tr('On')], [false, tr('Off')]], !sfx.muted, (on) => {
+          sfx.setMuted(!on);
+          sfx.play('add');
+          showSettings();
+        })),
+      row(tr('Language'), tr('Language of the app. Card names and card data stay as the source gives them.'),
+        chips([['en', 'English'], ['es', 'Español']], i18n.lang, (lang) => {
+          i18n.setLang(lang);
+          renderStaticTexts();
+          showSettings();
+        }))),
+    el('section', { class: 'settings-section' },
+      el('h2', { class: 'section-title' }, tr('TCGs')),
+      el('p', { class: 'muted hint' }, tr('Hide the TCGs you do not collect: they disappear from the main menu. Your cards and decks are kept.')),
+      el('div', { class: 'settings-tcgs' }, tcgRows)));
 }
 
 const tcgById = (id) => TCGS.find((t) => t.id === id) || TCGS[0];
@@ -100,7 +176,7 @@ const tcgById = (id) => TCGS.find((t) => t.id === id) || TCGS[0];
 async function showTcg(tcg) {
   setChrome(tcg.name, tcg);
   setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }),
-    el('p', {}, tcg.id === 'onepiece' ? 'Loading… (the first time it downloads every One Piece card, this takes a few seconds)' : 'Loading…')));
+    el('p', {}, tcg.id === 'onepiece' ? tr('Loading… (the first time it downloads every One Piece card, this takes a few seconds)') : tr('Loading…'))));
   let collections, dexStats;
   try {
     [collections, dexStats] = await Promise.all([
@@ -109,17 +185,17 @@ async function showTcg(tcg) {
     ]);
   } catch (err) {
     setChildren(view,
-      el('p', { class: 'error' }, 'Could not download the cards. Are you connected to the internet?'),
+      el('p', { class: 'error' }, tr('Could not download the cards. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showTcg(tcg) }, 'Retry'));
+      el('button', { class: 'btn', onclick: () => showTcg(tcg) }, tr('Retry')));
     return;
   }
   const pokedexItem = tcg.id !== 'pokemon' ? null :
     el('button', { class: 'collection-item pokedex-item', onclick: () => navigate(showPokedex, tcg) },
       itemHeader('Pokédex', dexStats?.owned, dexStats?.with_fullart),
       el('div', { class: 'collection-meta' },
-        dexStats ? `${dexStats.owned} / ${dexStats.with_fullart} Pokémon collected`
-                 : 'Not downloaded yet'),
+        dexStats ? tr('{owned} / {total} Pokémon collected', { owned: dexStats.owned, total: dexStats.with_fullart })
+                 : tr('Not downloaded yet')),
       dexStats ? progressBar(dexStats.owned, dexStats.with_fullart) : null);
 
   // Solo se muestran los sets en los que ya tienes alguna carta; todos, desde "View sets".
@@ -131,9 +207,9 @@ async function showTcg(tcg) {
     const active = cols.filter((c) => !c.custom && c.owned > 0);
     setChildren(setGrid, ...active.map((c) => collectionItem(tcg, c)));
     if (!active.length) setGrid.append(el('p', { class: 'muted' },
-      'No sets with cards yet. Search for a card above or use View sets to open a set.'));
+      tr('No sets with cards yet. Search for a card above or use View sets to open a set.')));
     if (!customGrid.children.length) customGrid.append(el('p', { class: 'muted' },
-      'No collections yet. Use Create collection to group cards from any set.'));
+      tr('No collections yet. Use Create collection to group cards from any set.')));
   };
   // Al marcar una carta desde el buscador, el set aparece (o desaparece) de la lista al momento.
   const search = cardSearch(tcg, async () => renderSets(await window.tcg.listCollections(tcg.id)));
@@ -144,13 +220,13 @@ async function showTcg(tcg) {
       el('div', { class: 'toolbar' }, el('div', { class: 'toolbar-row' }, exportButton(tcg, null)))),
     search,
     el('div', { class: 'section-head collections-head' },
-      el('h2', { class: 'section-title' }, 'Collections'),
+      el('h2', { class: 'section-title' }, tr('Collections')),
       el('button', { class: 'btn btn-secondary btn-icon', onclick: () => navigate(showCollectionEditor, tcg, null) },
-        el('span', { class: 'icon-plus' }), 'Create collection')),
+        el('span', { class: 'icon-plus' }), tr('Create collection'))),
     customGrid,
     el('div', { class: 'section-head sets-head' },
-      el('h2', { class: 'section-title' }, 'Sets'),
-      el('button', { class: 'btn btn-secondary', onclick: () => navigate(showAllSets, tcg) }, 'View sets')),
+      el('h2', { class: 'section-title' }, tr('Sets')),
+      el('button', { class: 'btn btn-secondary', onclick: () => navigate(showAllSets, tcg) }, tr('View sets'))),
     setGrid
   );
   renderSets(collections);
@@ -160,8 +236,8 @@ function collectionItem(tcg, c) {
   return el('button', { class: 'collection-item', onclick: () => navigate(showCollection, tcg, c.id) },
     itemHeader(c.name, c.owned, c.total),
     el('div', { class: 'collection-meta' },
-      c.total || c.hidden ? `${c.owned} / ${c.total} cards` : c.custom ? 'No cards yet' : 'Not downloaded yet',
-      c.hidden ? el('span', { class: 'hidden-count' }, ` · ${c.hidden} hidden`) : null),
+      c.total || c.hidden ? tr('{owned} / {total} cards', { owned: c.owned, total: c.total }) : c.custom ? tr('No cards yet') : tr('Not downloaded yet'),
+      c.hidden ? el('span', { class: 'hidden-count' }, ` · ${tr('{n} hidden', { n: c.hidden })}`) : null),
     c.total ? progressBar(c.owned, c.total) : null);
 }
 
@@ -173,7 +249,7 @@ function cardSearch(tcg, onChange) {
   const results = el('div', { class: 'search-results' });
   const filters = filterState(`search:${tcg.id}`);
   const input = el('input', {
-    class: 'search', type: 'search', placeholder: `Search cards to add, e.g. ${tcg.example}`, value: cardSearchState[tcg.id] || '',
+    class: 'search', type: 'search', placeholder: tr('Search cards to add, e.g. {example}', { example: tcg.example }), value: cardSearchState[tcg.id] || '',
     onkeydown: (e) => { if (e.key === 'Enter') run(); },
     onsearch: (e) => { if (!e.target.value) run(); },
   });
@@ -181,12 +257,12 @@ function cardSearch(tcg, onChange) {
     const q = input.value.trim();
     cardSearchState[tcg.id] = q;
     if (q.length < 2) { setChildren(results); return; }
-    setChildren(results, el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, 'Searching…')));
+    setChildren(results, el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, tr('Searching…'))));
     let cards;
     try {
       cards = await window.tcg.searchCards(q, tcg.id);
     } catch (err) {
-      if (cardSearchState[tcg.id] === q) setChildren(results, el('p', { class: 'error' }, `Search failed: ${err.message || err}`));
+      if (cardSearchState[tcg.id] === q) setChildren(results, el('p', { class: 'error' }, tr('Search failed: {error}', { error: err.message || err })));
       return;
     }
     if (cardSearchState[tcg.id] !== q) return; // llegó tarde: ya se buscó otra cosa
@@ -196,8 +272,8 @@ function cardSearch(tcg, onChange) {
     const advanced = advancedFilter(tcg, filters, { getCards: () => cards, onChange: () => render() });
     const render = () => {
       const list = filterCards(cards, filters);
-      const found = `${cards.length} card${cards.length === 1 ? '' : 's'} found`;
-      title.textContent = list.length === cards.length ? found : `${found} · ${list.length} shown`;
+      const found = foundText(cards.length);
+      title.textContent = list.length === cards.length ? found : `${found} · ${tr('{n} shown', { n: list.length })}`;
       setChildren(grid, ...list.map((c) => cardTile(c, async () => {
         if (c.quantity > 1) return; // la cantidad se gestiona desde el set
         c.quantity = c.quantity > 0 ? 0 : 1;
@@ -206,7 +282,7 @@ function cardSearch(tcg, onChange) {
         render();
         onChange?.();
       }, [c.set.name, c.rarity || ''])));
-      if (cards.length && !list.length) grid.append(el('p', { class: 'muted' }, 'No cards match these filters.'));
+      if (cards.length && !list.length) grid.append(el('p', { class: 'muted' }, tr('No cards match these filters.')));
     };
     render();
     setChildren(results,
@@ -214,32 +290,34 @@ function cardSearch(tcg, onChange) {
         title,
         el('div', { class: 'section-actions' },
           cards.length ? advanced.button : null,
-          el('button', { class: 'chip', onclick: () => { input.value = ''; run(); } }, 'Clear'))),
+          el('button', { class: 'chip', onclick: () => { input.value = ''; run(); } }, tr('Clear')))),
       advanced.badges,
-      cards.length ? el('p', { class: 'muted hint' }, 'Click a card to mark it as owned.') : null,
+      cards.length ? el('p', { class: 'muted hint' }, tr('Click a card to mark it as owned.')) : null,
       grid);
   };
   if (cardSearchState[tcg.id]) run();
   return el('div', { class: 'card-search' },
-    el('div', { class: 'search-row' }, input, el('button', { class: 'btn', onclick: run }, 'Search')),
+    el('div', { class: 'search-row' }, input, el('button', { class: 'btn', onclick: run }, tr('Search'))),
     results);
 }
+
+const foundText = (n) => tr(n === 1 ? '{n} card found' : '{n} cards found', { n });
 
 // ---------- Todos los sets ----------
 const setsState = { setQuery: '', scroll: 0 };
 
 async function showAllSets(tcg, opts = {}) {
-  setChrome(`${tcg.name} › All sets`, tcg);
-  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, 'Loading sets…')));
+  setChrome(`${tcg.name} › ${tr('All sets')}`, tcg);
+  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading sets…'))));
 
   let collections;
   try {
     collections = await window.tcg.listCollections(tcg.id, opts);
   } catch (err) {
     setChildren(view,
-      el('p', { class: 'error' }, 'Could not download the set list. Are you connected to the internet?'),
+      el('p', { class: 'error' }, tr('Could not download the set list. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showAllSets(tcg, opts) }, 'Retry'));
+      el('button', { class: 'btn', onclick: () => showAllSets(tcg, opts) }, tr('Retry')));
     return;
   }
   collections = collections.filter((c) => !c.custom); // las custom están en la pantalla principal
@@ -253,30 +331,30 @@ async function showAllSets(tcg, opts = {}) {
     const groups = new Map();
     for (const c of collections) {
       if (q && !c.name.toLowerCase().includes(q) && !(c.serie_name || '').toLowerCase().includes(q)) continue;
-      const key = c.serie_name || 'Collections';
+      const key = c.serie_name || tr('Collections');
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(c);
     }
     setChildren(setList, ...[...groups].map(([serie, items]) => el('section', {},
       el('h2', { class: 'section-title' }, serie),
       el('div', { class: 'set-grid' }, items.map((c) => setTile(c, () => open(c)))))));
-    if (!groups.size) setList.append(el('p', { class: 'muted' }, 'No sets match.'));
+    if (!groups.size) setList.append(el('p', { class: 'muted' }, tr('No sets match.')));
   };
 
   const setFilter = el('input', {
-    class: 'search', type: 'search', placeholder: 'Filter sets…', value: setsState.setQuery,
+    class: 'search', type: 'search', placeholder: tr('Filter sets…'), value: setsState.setQuery,
     oninput: (e) => { setsState.setQuery = e.target.value; renderSets(); },
   });
 
   setChildren(view,
     el('div', { class: 'collection-header' },
       el('div', {},
-        el('h1', { class: 'title' }, 'All sets'),
-        el('div', { class: 'counter' }, `${collections.length} sets · ${withCards} with cards`)),
+        el('h1', { class: 'title' }, tr('All sets')),
+        el('div', { class: 'counter' }, tr('{n} sets · {withCards} with cards', { n: collections.length, withCards }))),
       el('div', { class: 'toolbar' },
         el('div', { class: 'toolbar-row' },
           el('button', { class: 'btn', onclick: () => { setsState.scroll = 0; showAllSets(tcg, { refreshSets: true }); } },
-            'Update set list')),
+            tr('Update set list'))),
         el('div', { class: 'toolbar-row' }, setFilter))),
     setList
   );
@@ -291,10 +369,11 @@ function setTile(c, onClick) {
       // Scryfall da el símbolo del set en SVG negro: se muestra en blanco (ver .mtg-symbol).
       c.logo && c.tcg === 'magic' ? el('img', { class: 'mtg-symbol', src: c.logo, alt: '', loading: 'lazy' })
         : c.logo ? el('img', { src: `${c.logo}.webp`, alt: '', loading: 'lazy' })
-        : c.tcg === 'onepiece' ? el('span', { class: 'set-code' }, c.set_id) : el('span', {}, 'No logo')),
+        : c.tcg === 'onepiece' ? el('span', { class: 'set-code' }, c.set_id) : el('span', {}, tr('No logo'))),
     el('div', { class: 'set-name' }, c.name),
     el('div', { class: 'collection-meta' },
-      [c.release_date?.slice(0, 4), owned ? `${c.owned} / ${c.total} cards` : c.total ? `${c.total} cards` : null]
+      [c.release_date?.slice(0, 4), owned ? tr('{owned} / {total} cards', { owned: c.owned, total: c.total })
+        : c.total ? tr('{n} cards', { n: c.total }) : null]
         .filter(Boolean).join(' · ')),
     owned && c.total ? progressBar(c.owned, c.total) : null);
 }
@@ -312,7 +391,7 @@ function formatPct(owned, total) {
   const digits = pct > 0 && pct < 10 ? 1 : 0;
   const factor = 10 ** digits;
   const value = owned >= total ? 100 : Math.floor(pct * factor) / factor;
-  return `${value.toLocaleString('en', { minimumFractionDigits: digits, maximumFractionDigits: digits })} %`;
+  return `${value.toLocaleString(i18n.lang, { minimumFractionDigits: digits, maximumFractionDigits: digits })} %`;
 }
 
 function progressBar(owned, total) {
@@ -345,12 +424,12 @@ const FILTER_GROUPS = [
   { key: 'stage', label: 'Stage', get: (c) => c.attrs?.stage, order: ['Basic', 'Stage 1', 'Stage 2'] },
   { key: 'mechanic', label: 'Mechanic', get: (c) => c.attrs?.mechanic, order: ['ex', 'EX', 'GX', 'V', 'VMAX', 'VSTAR'] },
   { key: 'attribute', label: 'Attribute', get: (c) => c.attrs?.attributes, order: ['Slash', 'Strike', 'Ranged', 'Special', 'Wisdom'] },
-  { key: 'version', label: 'Version', get: (c) => c.attrs?.version, single: true, order: ['Standard', 'Alternate art'] },
-  { key: 'treatment', label: 'Frame / Art', get: (c) => c.attrs?.treatment,
+  { key: 'version', label: 'Version', get: (c) => c.attrs?.version, single: true, translate: true, order: ['Standard', 'Alternate art'] },
+  { key: 'treatment', label: 'Frame / Art', get: (c) => c.attrs?.treatment, translate: true,
     order: ['Regular', 'Borderless', 'Showcase', 'Extended art', 'Full art', 'Old frame', 'Promo'] },  // Los sets se dejan en el orden en que llegan las cartas (del más nuevo al más antiguo).
   { key: 'set', label: 'Set', get: (c) => c.set_name || c.setName || c.set?.name, keepOrder: true },
 ];
-const OWNED_STATUS = [['owned', 'Owned'], ['missing', 'Not owned']];
+const ownedStatus = () => [['owned', tr('Owned')], ['missing', tr('Not owned')]];
 // OPTCG API da la rareza abreviada: en los filtros se muestra el nombre completo.
 const OP_RARITIES = {
   L: 'Leader', C: 'Common', UC: 'Uncommon', R: 'Rare', SR: 'Super Rare', SEC: 'Secret Rare',
@@ -363,8 +442,9 @@ function filterState(key) {
   return (filterStates[key] ||= { status: null, values: {} });
 }
 
-const groupLabel = (g, tcg) => (typeof g.label === 'function' ? g.label(tcg) : g.label);
-const valueLabel = (g, v, tcg) => (g.display ? g.display(v, tcg) : v);
+const groupLabel = (g, tcg) => tr(typeof g.label === 'function' ? g.label(tcg) : g.label);
+// Los valores salen de los datos de la carta y no se traducen, salvo en los grupos con translate.
+const valueLabel = (g, v, tcg) => (g.display ? g.display(v, tcg) : g.translate ? tr(v) : v);
 const valuesOf = (g, card) => [].concat(g.get(card) ?? []).map(String);
 
 // Chip de opción; data-label reserva el ancho del texto en negrita para que al activarlo no se mueva nada.
@@ -398,9 +478,9 @@ function groupOptions(g, cards, picked, tcg) {
 // Botón "Filters" (abre el diálogo) y fila de badges con los filtros aplicados, que se quitan uno a uno.
 // getCards: cartas de las que salen las opciones; statusOptions: función que da [clave, texto] del grupo "Collection".
 // quickStatus: muestra además los chips All / Owned / Not owned mientras no haya otros filtros aplicados.
-function advancedFilter(tcg, state, { getCards, statusOptions = () => OWNED_STATUS, quickStatus = false, onChange }) {
+function advancedFilter(tcg, state, { getCards, statusOptions = ownedStatus, quickStatus = false, onChange }) {
   const button = el('button', {
-    class: 'btn btn-secondary btn-icon filter-btn', title: 'Advanced filters',
+    class: 'btn btn-secondary btn-icon filter-btn', title: tr('Advanced filters'),
     onclick: async () => {
       const next = await openFilterDialog(tcg, getCards(), state, statusOptions());
       if (!next) return;
@@ -418,7 +498,7 @@ function advancedFilter(tcg, state, { getCards, statusOptions = () => OWNED_STAT
     const list = [];
     const status = statusOptions().find(([k]) => k === state.status);
     if (status && !showQuick()) list.push({ label: status[1], remove: () => { state.status = null; } });
-    if (state.minQty) list.push({ label: `Copies: ${state.minQty}+`, remove: () => { state.minQty = null; } });
+    if (state.minQty) list.push({ label: tr('Copies: {n}+', { n: state.minQty }), remove: () => { state.minQty = null; } });
     for (const g of FILTER_GROUPS) {
       for (const v of state.values[g.key] || []) {
         list.push({ label: `${groupLabel(g, tcg)}: ${valueLabel(g, v, tcg)}`, remove: () => {
@@ -432,18 +512,18 @@ function advancedFilter(tcg, state, { getCards, statusOptions = () => OWNED_STAT
 
   const update = () => {
     const list = active();
-    setChildren(button, el('span', { class: 'icon-filter' }), 'Filters',
+    setChildren(button, el('span', { class: 'icon-filter' }), tr('Filters'),
       list.length ? el('span', { class: 'filter-count' }, String(list.length)) : null);
     setChildren(badges,
       list.map((f) => el('span', { class: 'filter-badge' }, f.label,
-        el('button', { class: 'filter-badge-x', title: 'Remove this filter', onclick: () => { sfx.play('uncheck'); removeAndRefresh(f.remove); } },
+        el('button', { class: 'filter-badge-x', title: tr('Remove this filter'), onclick: () => { sfx.play('uncheck'); removeAndRefresh(f.remove); } },
           el('span', { class: 'icon-x' })))),
       list.length > 1 ? el('button', {
         class: 'link filter-clear',
         onclick: () => { sfx.play('uncheck'); removeAndRefresh(() => { state.status = null; state.minQty = null; state.values = {}; }); },
-      }, 'Clear all') : null);
+      }, tr('Clear all')) : null);
     badges.classList.toggle('hidden', !list.length);
-    setChildren(chips, showQuick() ? [['', 'All'], ...statusOptions()].map(([k, label]) =>
+    setChildren(chips, showQuick() ? [['', tr('All')], ...statusOptions()].map(([k, label]) =>
       optionChip(label, (state.status || '') === k, () => removeAndRefresh(() => { state.status = k || null; }))) : null);
     chips.classList.toggle('hidden', !showQuick());
   };
@@ -480,11 +560,11 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
         // stopPropagation: el clic no llega a document, así que el sonido se pone aquí.
         onclick: (e) => { e.stopPropagation(); sfx.play('click'); if (openPanel?.trigger === trigger) closePanel(); else open(); },
       }, value, el('span', { class: 'dropdown-caret' }));
-      const items = single ? [[null, 'All'], ...options] : options;
+      const items = single ? [[null, tr('All')], ...options] : options;
 
       const refresh = () => {
         const labels = options.filter(([v]) => getSelected().includes(v)).map(([, l]) => l);
-        value.textContent = !labels.length ? title : labels.length <= 2 ? labels.join(', ') : `${labels.length} selected`;
+        value.textContent = !labels.length ? title : labels.length <= 2 ? labels.join(', ') : tr('{n} selected', { n: labels.length });
         trigger.classList.toggle('has-value', labels.length > 0);
       };
 
@@ -512,7 +592,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
             !single && selected.length ? el('button', {
               class: 'dropdown-clear', type: 'button',
               onclick: () => { sfx.play('uncheck'); selected.forEach(onPick); refresh(); renderItems(); },
-            }, 'Clear selection') : null);
+            }, tr('Clear selection')) : null);
         };
         renderItems();
         document.body.append(panel);
@@ -551,7 +631,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
         minQty.classList.toggle('has-value', !!draft.minQty);
       };
       const minQtyInput = el('input', {
-        type: 'number', min: '1', step: '1', placeholder: 'Any', value: draft.minQty ? String(draft.minQty) : '',
+        type: 'number', min: '1', step: '1', placeholder: tr('Any'), value: draft.minQty ? String(draft.minQty) : '',
         oninput: (e) => {
           const n = Math.floor(Number(e.target.value));
           draft.minQty = n > 0 ? n : null;
@@ -563,12 +643,12 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
         onclick: () => { sfx.play('click'); setMinQty((draft.minQty || 0) + delta); },
       }, label);
       const minQty = el('div', { class: 'filter-number' + (draft.minQty ? ' has-value' : '') },
-        stepButton('−', 'Fewer copies', -1), minQtyInput, stepButton('+', 'More copies', 1));
+        stepButton('−', tr('Fewer copies'), -1), minQtyInput, stepButton('+', tr('More copies'), 1));
       setChildren(body,
-        dropdown('Collection', statusOptions, true, () => (draft.status ? [draft.status] : []), (v) => { draft.status = v; }),
-        el('div', { class: 'filter-field' }, el('span', { class: 'filter-field-label' }, 'Min. copies'), minQty),
+        dropdown(tr('Collection'), statusOptions, true, () => (draft.status ? [draft.status] : []), (v) => { draft.status = v; }),
+        el('div', { class: 'filter-field' }, el('span', { class: 'filter-field-label' }, tr('Min. copies')), minQty),
         groups,
-        groups.length ? null : el('p', { class: 'muted filter-empty' }, 'There is no card data to filter by type, rarity or color here.'));
+        groups.length ? null : el('p', { class: 'muted filter-empty' }, tr('There is no card data to filter by type, rarity or color here.')));
     };
 
     const close = (value) => {
@@ -594,14 +674,14 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
       onclick: (e) => { if (openPanel) closePanel(); else if (e.target === overlay) close(null); },
     },
       el('div', { class: 'dialog filter-dialog', role: 'dialog' },
-        el('h3', {}, 'Filters'),
-        el('p', { class: 'muted' }, 'Leave a field empty to not filter by it.'),
+        el('h3', {}, tr('Filters')),
+        el('p', { class: 'muted' }, tr('Leave a field empty to not filter by it.')),
         body,
         el('div', { class: 'dialog-actions' },
           el('button', { class: 'link filter-reset', onclick: () => { sfx.play('uncheck'); draft.status = null; draft.minQty = null; draft.values = {}; render(); } },
-            'Clear all'),
-          el('button', { class: 'chip', onclick: () => close(null) }, 'Cancel'),
-          el('button', { class: 'btn', onclick: apply }, 'Apply'))));
+            tr('Clear all')),
+          el('button', { class: 'chip', onclick: () => close(null) }, tr('Cancel')),
+          el('button', { class: 'btn', onclick: apply }, tr('Apply')))));
     body.addEventListener('scroll', closePanel);
     render();
     document.addEventListener('keydown', onKey, true);
@@ -615,16 +695,16 @@ async function showCollection(tcg, collectionId, opts = {}) {
   setChrome(`${tcg.name} › …`, tcg);
   setChildren(view, el('div', { class: 'loading' },
     el('div', { class: 'spinner' }),
-    el('p', {}, opts.refresh ? `Updating cards from ${tcg.source}…` : 'Loading cards…')));
+    el('p', {}, opts.refresh ? tr('Updating cards from {source}…', { source: tcg.source }) : tr('Loading cards…'))));
 
   let data;
   try {
     data = await window.tcg.getCollection(collectionId, opts);
   } catch (err) {
     setChildren(view,
-      el('p', { class: 'error' }, 'Could not download the cards. Are you connected to the internet?'),
+      el('p', { class: 'error' }, tr('Could not download the cards. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showCollection(tcg, collectionId, opts) }, 'Retry'));
+      el('button', { class: 'btn', onclick: () => showCollection(tcg, collectionId, opts) }, tr('Retry')));
     return;
   }
   const { collection, cards } = data;
@@ -641,7 +721,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
   const filters = filterState(`collection:${collectionId}`);
   const advanced = advancedFilter(tcg, filters, {
     getCards: () => cards,
-    statusOptions: () => [...OWNED_STATUS, ...(hiddenCount() ? [['hidden', `Hidden (${hiddenCount()})`]] : [])],
+    statusOptions: () => [...ownedStatus(), ...(hiddenCount() ? [['hidden', tr('Hidden ({n})', { n: hiddenCount() })]] : [])],
     quickStatus: true,
     onChange: () => render(),
   });
@@ -650,8 +730,8 @@ async function showCollection(tcg, collectionId, opts = {}) {
     const visible = shown();
     const owned = visible.filter((c) => c.quantity > 0).length;
     const hidden = hiddenCount();
-    setChildren(counter, `${owned} / ${visible.length} collected`,
-      hidden ? el('span', { class: 'hidden-count' }, ` · ${hidden} hidden`) : null);
+    setChildren(counter, tr('{owned} / {total} collected', { owned, total: visible.length }),
+      hidden ? el('span', { class: 'hidden-count' }, ` · ${tr('{n} hidden', { n: hidden })}`) : null);
     bar.style.width = `${visible.length ? (owned / visible.length) * 100 : 0}%`;
   };
 
@@ -685,9 +765,9 @@ async function showCollection(tcg, collectionId, opts = {}) {
     }, (key, q) => setVariant(card, key, q)),
     { separator: true },
     card.hidden
-      ? { label: 'Add back to set', icon: '↺', onClick: () => setHidden(card, false) }
-      : { label: 'Hide from set', icon: '⊘', onClick: () => setHidden(card, true) },
-    collection.custom ? { label: 'Remove from collection', icon: '×', sound: 'remove', onClick: () => removeCard(card) } : null,
+      ? { label: tr('Add back to set'), icon: '↺', onClick: () => setHidden(card, false) }
+      : { label: tr('Hide from set'), icon: '⊘', onClick: () => setHidden(card, true) },
+    collection.custom ? { label: tr('Remove from collection'), icon: '×', sound: 'remove', onClick: () => removeCard(card) } : null,
   ];
 
   const removeCard = async (card) => {
@@ -715,7 +795,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
     }, [collection.custom ? card.set_name || card.set_id : null, card.rarity || '', qtyLabel(card)].filter((l) => l != null),
     () => menuFor(card))));
     if (!list.length) grid.append(el('p', { class: 'muted' }, !cards.length && collection.custom
-      ? 'This collection has no cards yet. Use Edit collection to add some.' : 'No cards match this filter.'));
+      ? tr('This collection has no cards yet. Use Edit collection to add some.') : tr('No cards match this filter.')));
   };
 
   setChildren(view,
@@ -729,14 +809,14 @@ async function showCollection(tcg, collectionId, opts = {}) {
           notesButton(collection),
           exportButton(tcg, collection),
           collection.custom
-            ? el('button', { class: 'btn', onclick: () => navigate(showCollectionEditor, tcg, collectionId) }, 'Edit collection')
+            ? el('button', { class: 'btn', onclick: () => navigate(showCollectionEditor, tcg, collectionId) }, tr('Edit collection'))
             : el('button', { class: 'btn', onclick: () => showCollection(tcg, collectionId, { refresh: true }) },
-              'Update from API'),
-          collection.custom ? el('button', { class: 'btn btn-danger', onclick: removeCollection }, 'Delete collection') : null),
+              tr('Update from API')),
+          collection.custom ? el('button', { class: 'btn btn-danger', onclick: removeCollection }, tr('Delete collection')) : null),
         el('div', { class: 'toolbar-row' }, advanced.chips, advanced.button))),
     advanced.badges,
     el('p', { class: 'muted hint' },
-      'Click a card to mark or unmark it. Hover over it and use ⤢ to view it larger, or ⋮ to change the quantity and more options.'),
+      tr('Click a card to mark or unmark it. Hover over it and use ⤢ to view it larger, or ⋮ to change the quantity and more options.')),
     grid
   );
   refreshStats();
@@ -746,14 +826,14 @@ async function showCollection(tcg, collectionId, opts = {}) {
 // Botón "Notes" del set: abre un diálogo para ver o editar la nota.
 function notesButton(collection) {
   return el('button', {
-    class: 'btn btn-secondary', title: 'View or edit the notes',
+    class: 'btn btn-secondary', title: tr('View or edit the notes'),
     onclick: async () => {
       const value = await editNotes(collection);
       if (value == null || value === (collection.notes || '')) return;
       await window.tcg.setCollectionNotes(collection.id, value);
       collection.notes = value;
     },
-  }, '📝 Notes');
+  }, `📝 ${tr('Notes')}`);
 }
 
 // ---------- Exportar ----------
@@ -769,8 +849,8 @@ const EXPORT_FORMATS = [
 ];
 
 function exportButton(tcg, collection) {
-  return el('button', { class: 'btn btn-secondary', title: 'Export the cards to a file', onclick: () => openExportDialog(tcg, collection) },
-    '⭳ Export');
+  return el('button', { class: 'btn btn-secondary', title: tr('Export the cards to a file'), onclick: () => openExportDialog(tcg, collection) },
+    `⭳ ${tr('Export')}`);
 }
 
 function openExportDialog(tcg, collection) {
@@ -793,13 +873,13 @@ function openExportDialog(tcg, collection) {
   const render = () => {
     const formats = EXPORT_FORMATS.filter((f) => !f.tcg || f.tcg === tcg.id);
     setChildren(body,
-      collection ? group('Cards', [['owned', 'Cards I own'], ['missing', 'Cards I am missing']], 'mode') : null,
+      collection ? group(tr('Cards'), [['owned', tr('Cards I own')], ['missing', tr('Cards I am missing')]], 'mode') : null,
       collection && opts.mode === 'missing' && withVariants ? group(
-        tcg.id === 'magic' ? 'Versions (non-foil, foil, etched)' : 'Versions (normal, holo, reverse holo, stamped…)', [
-        [true, 'Each missing version'], [false, 'Only cards with no copies'],
+        tr(tcg.id === 'magic' ? 'Versions (non-foil, foil, etched)' : 'Versions (normal, holo, reverse holo, stamped…)'), [
+        [true, tr('Each missing version')], [false, tr('Only cards with no copies')],
       ], 'splitVariants') : null,
-      group('Format', formats.map((f) => [f.key, f.label]), 'format'),
-      el('p', { class: 'muted export-hint' }, formats.find((f) => f.key === opts.format).hint));
+      group(tr('Format'), formats.map((f) => [f.key, tr(f.label)]), 'format'),
+      el('p', { class: 'muted export-hint' }, tr(formats.find((f) => f.key === opts.format).hint)));
   };
 
   // Al pulsar "Export…" el diálogo pasa a una pantalla de carga (y no se puede cerrar) mientras se elige dónde
@@ -813,22 +893,22 @@ function openExportDialog(tcg, collection) {
   const run = async () => {
     const request = { tcg: tcg.id, collectionId: collection?.id || null, ...opts };
     busy = true;
-    loading('Choose where to save the file…');
+    loading(tr('Choose where to save the file…'));
     await wait(50); // que se pinte antes de abrir la ventana de guardar (en Windows tarda en aparecer)
     try {
-      const filePath = await window.tcg.chooseExportPath(request);
+      const filePath = await window.tcg.chooseExportPath({ ...request, dialogTitle: tr('Export collection') });
       if (!filePath) { render(); renderActions(); return; } // se canceló la ventana de guardar
-      loading('Generating the file…');
+      loading(tr('Generating the file…'));
       // Con pocas cartas el fichero sale al instante: la carga se muestra un momento para que no parpadee.
       const [result] = await Promise.all([window.tcg.exportCollection({ ...request, filePath }), wait(800)]);
-      setChildren(body, el('p', {}, `Exported ${result.rows} row${result.rows === 1 ? '' : 's'} to:`),
+      setChildren(body, el('p', {}, tr(result.rows === 1 ? 'Exported {n} row to:' : 'Exported {n} rows to:', { n: result.rows })),
         el('p', { class: 'muted export-path' }, result.path));
       setChildren(actions,
-        el('button', { class: 'chip', onclick: () => window.tcg.revealFile(result.path) }, 'Show in folder'),
-        el('button', { class: 'btn', onclick: close }, 'Done'));
+        el('button', { class: 'chip', onclick: () => window.tcg.revealFile(result.path) }, tr('Show in folder')),
+        el('button', { class: 'btn', onclick: close }, tr('Done')));
     } catch (err) {
       render();
-      body.append(el('p', { class: 'error' }, `Could not export: ${err.message || err}`));
+      body.append(el('p', { class: 'error' }, tr('Could not export: {error}', { error: err.message || err })));
       renderActions();
     } finally {
       busy = false;
@@ -837,31 +917,31 @@ function openExportDialog(tcg, collection) {
   // Copiar: sin ventana de guardar; el texto va directo al portapapeles.
   const copy = async () => {
     busy = true;
-    loading('Copying the list…');
+    loading(tr('Copying the list…'));
     try {
       const [result] = await Promise.all([
         window.tcg.copyExport({ tcg: tcg.id, collectionId: collection?.id || null, ...opts }), wait(400)]);
-      setChildren(body, el('p', {}, `Copied ${result.rows} line${result.rows === 1 ? '' : 's'} to the clipboard.`),
-        el('p', { class: 'muted' }, 'In Moxfield, open the deck or list, choose Bulk Edit and paste it.'));
-      setChildren(actions, el('button', { class: 'btn', onclick: close }, 'Done'));
+      setChildren(body, el('p', {}, tr(result.rows === 1 ? 'Copied {n} line to the clipboard.' : 'Copied {n} lines to the clipboard.', { n: result.rows })),
+        el('p', { class: 'muted' }, tr('In Moxfield, open the deck or list, choose Bulk Edit and paste it.')));
+      setChildren(actions, el('button', { class: 'btn', onclick: close }, tr('Done')));
     } catch (err) {
       render();
-      body.append(el('p', { class: 'error' }, `Could not copy: ${err.message || err}`));
+      body.append(el('p', { class: 'error' }, tr('Could not copy: {error}', { error: err.message || err })));
       renderActions();
     } finally {
       busy = false;
     }
   };
   const renderActions = () => setChildren(actions,
-    el('button', { class: 'chip', onclick: close }, 'Cancel'),
+    el('button', { class: 'chip', onclick: close }, tr('Cancel')),
     EXPORT_FORMATS.find((f) => f.key === opts.format)?.copy
-      ? el('button', { class: 'chip', onclick: copy }, '📋 Copy to clipboard') : null,
-    el('button', { class: 'btn', onclick: run }, 'Export…'));
+      ? el('button', { class: 'chip', onclick: copy }, `📋 ${tr('Copy to clipboard')}`) : null,
+    el('button', { class: 'btn', onclick: run }, tr('Export…')));
 
   const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
     el('div', { class: 'dialog export-dialog', role: 'dialog' },
-      el('h3', {}, 'Export'),
-      el('p', { class: 'muted' }, collection ? collection.name : `Every ${tcg.name} card you own, from all sets`),
+      el('h3', {}, tr('Export')),
+      el('p', { class: 'muted' }, collection ? collection.name : tr('Every {tcg} card you own, from all sets', { tcg: tcg.name })),
       body,
       actions));
   render();
@@ -873,7 +953,7 @@ function openExportDialog(tcg, collection) {
 // Devuelve el texto nuevo, o null si se cancela.
 function editNotes(collection) {
   return new Promise((resolve) => {
-    const textarea = el('textarea', { class: 'notes-input', rows: '10', placeholder: 'Write anything about this set…' });
+    const textarea = el('textarea', { class: 'notes-input', rows: '10', placeholder: tr('Write anything about this set…') });
     textarea.value = collection.notes || '';
     const close = (value) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
     const onKey = (e) => {
@@ -881,12 +961,12 @@ function editNotes(collection) {
     };
     const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(null); } },
       el('div', { class: 'dialog notes-dialog', role: 'dialog' },
-        el('h3', {}, 'Notes'),
+        el('h3', {}, tr('Notes')),
         el('p', { class: 'muted' }, collection.name),
         textarea,
         el('div', { class: 'dialog-actions' },
-          el('button', { class: 'chip', onclick: () => close(null) }, 'Cancel'),
-          el('button', { class: 'btn', onclick: () => close(textarea.value) }, 'Save'))));
+          el('button', { class: 'chip', onclick: () => close(null) }, tr('Cancel')),
+          el('button', { class: 'btn', onclick: () => close(textarea.value) }, tr('Save')))));
     document.addEventListener('keydown', onKey, true);
     document.body.append(overlay);
     textarea.focus();
@@ -915,34 +995,34 @@ function openCardPicker(tcg, { search, filterKey, mapResult = (c) => c, pickTile
     sub.textContent = subtitle();
     if (!search.results.length) return;
     const list = filterCards(search.results, filters);
-    const found = `${search.results.length} card${search.results.length === 1 ? '' : 's'} found`;
+    const found = foundText(search.results.length);
     const top = body.scrollTop;
     setChildren(body,
       el('div', { class: 'section-head picker-head' },
-        el('p', { class: 'muted hint' }, list.length === search.results.length ? found : `${found} · ${list.length} shown`, `. ${hint}`),
+        el('p', { class: 'muted hint' }, list.length === search.results.length ? found : `${found} · ${tr('{n} shown', { n: list.length })}`, `. ${hint}`),
         advanced.button),
       advanced.badges,
       el('div', { class: 'card-grid' }, list.map(pickTile)),
-      list.length ? null : el('p', { class: 'muted' }, 'No cards match these filters.'));
+      list.length ? null : el('p', { class: 'muted' }, tr('No cards match these filters.')));
     body.scrollTop = top;
   };
   const input = el('input', {
-    class: 'search', type: 'search', placeholder: `Search cards to add, e.g. ${tcg.example}`, value: search.query,
+    class: 'search', type: 'search', placeholder: tr('Search cards to add, e.g. {example}', { example: tcg.example }), value: search.query,
     onkeydown: (e) => { if (e.key === 'Enter') run(); },
   });
   const run = async () => {
     const q = input.value.trim();
     search.query = q;
     if (q.length < 2) { search.results = []; setChildren(body); return; }
-    setChildren(body, el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, 'Searching…')));
+    setChildren(body, el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, tr('Searching…'))));
     try {
       const found = await window.tcg.searchCards(q, tcg.id);
       if (search.query !== q || !overlay.isConnected) return; // ya se buscó otra cosa, o se cerró el diálogo
       search.results = found.map(mapResult);
-      if (!search.results.length) setChildren(body, el('p', { class: 'muted' }, 'No cards found.'));
+      if (!search.results.length) setChildren(body, el('p', { class: 'muted' }, tr('No cards found.')));
       render();
     } catch (err) {
-      setChildren(body, el('p', { class: 'error' }, `Search failed: ${err.message || err}`));
+      setChildren(body, el('p', { class: 'error' }, tr('Search failed: {error}', { error: err.message || err })));
     }
   };
   const close = () => {
@@ -963,9 +1043,9 @@ function openCardPicker(tcg, { search, filterKey, mapResult = (c) => c, pickTile
   const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
     el('div', { class: 'dialog printings-dialog card-picker', role: 'dialog' },
       el('div', { class: 'printings-header' },
-        el('div', { class: 'card-picker-head' }, el('h3', {}, 'Add cards'), sub,
-          el('div', { class: 'search-row' }, input, el('button', { class: 'btn', onclick: run }, 'Search'))),
-        el('button', { class: 'chip', onclick: close }, 'Done')),
+        el('div', { class: 'card-picker-head' }, el('h3', {}, tr('Add cards')), sub,
+          el('div', { class: 'search-row' }, input, el('button', { class: 'btn', onclick: run }, tr('Search')))),
+        el('button', { class: 'chip', onclick: close }, tr('Done'))),
       body));
   body.addEventListener('scroll', closeCardMenu);
   render();
@@ -979,10 +1059,10 @@ function openCardPicker(tcg, { search, filterKey, mapResult = (c) => c, pickTile
 // collectionId null = colección nueva. Los cambios solo se guardan al pulsar "Save".
 async function showCollectionEditor(tcg, collectionId) {
   const isNew = !collectionId;
-  setChrome(`${tcg.name} › ${isNew ? 'New collection' : 'Edit collection'}`, tcg);
+  setChrome(`${tcg.name} › ${tr(isNew ? 'New collection' : 'Edit collection')}`, tcg);
   const draft = { id: collectionId, name: '', cards: [] };
   if (!isNew) {
-    setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, 'Loading collection…')));
+    setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading collection…'))));
     const { collection, cards } = await window.tcg.getCollection(collectionId);
     draft.name = collection.name;
     draft.cards = cards.map((c) => ({ ...draftCard(c), quantity: c.quantity, variant_qty: c.variant_qty }));
@@ -1017,7 +1097,7 @@ async function showCollectionEditor(tcg, collectionId) {
       renderAll();
     }, (key, q) => setVariant(c, key, q)),
     { separator: true },
-    { label: 'Remove from collection', icon: '×', sound: 'remove', onClick: () => toggleIncluded(c) },
+    { label: tr('Remove from collection'), icon: '×', sound: 'remove', onClick: () => toggleIncluded(c) },
   ];
   const toggleIncluded = (c) => {
     draft.cards = included().has(c.id) ? draft.cards.filter((x) => x.id !== c.id) : [...draft.cards, c];
@@ -1028,10 +1108,10 @@ async function showCollectionEditor(tcg, collectionId) {
   const selectedTitle = el('h2', { class: 'section-title' });
   const selectedGrid = el('div', { class: 'card-grid' });
   const renderSelected = () => {
-    selectedTitle.textContent = `Cards in this collection (${draft.cards.length})`;
+    selectedTitle.textContent = tr('Cards in this collection ({n})', { n: draft.cards.length });
     setChildren(selectedGrid, ...draft.cards.map((c) => cardTile(tile(c), () => toggleOwned(c),
       [c.setName || c.setId, c.rarity || '', qtyLabel(c)], () => menuFor(c))));
-    if (!draft.cards.length) selectedGrid.append(el('p', { class: 'muted' }, 'No cards yet. Use Add cards to search for some.'));
+    if (!draft.cards.length) selectedGrid.append(el('p', { class: 'muted' }, tr('No cards yet. Use Add cards to search for some.')));
   };
 
   // Diálogo "Add cards": clic (o +/−) = añadir a la colección / quitar; ⋮ (si ya está) = cantidad y más.
@@ -1042,18 +1122,18 @@ async function showCollectionEditor(tcg, collectionId) {
     const t = tile(c);
     return el('div', {
       class: 'card pick' + (isIn ? ' owned' : ''),
-      title: isIn ? 'In the collection (click to remove it)' : 'Click to add it to the collection',
+      title: tr(isIn ? 'In the collection (click to remove it)' : 'Click to add it to the collection'),
       onclick: () => { sfx.play(isIn ? 'remove' : 'add'); toggleIncluded(c); },
     },
       el('div', { class: 'card-img-wrap' },
         t.image_url
           ? el('img', { src: cardImage(t.image_url), alt: c.name, loading: 'lazy' })
-          : el('div', { class: 'no-image' }, c.name, el('br'), 'No image'),
+          : el('div', { class: 'no-image' }, c.name, el('br'), tr('No image')),
         expandButton(t),
-        el('div', { class: 'check pick-toggle', title: isIn ? 'Remove from the collection' : 'Add to the collection' },
+        el('div', { class: 'check pick-toggle', title: tr(isIn ? 'Remove from the collection' : 'Add to the collection') },
           el('span', { class: isIn ? 'icon-minus' : 'icon-plus' })),
         isIn ? el('button', {
-          class: 'card-menu-btn', title: 'Actions',
+          class: 'card-menu-btn', title: tr('Actions'),
           onclick: (e) => { e.stopPropagation(); openCardMenu(e.currentTarget, menuFor(c)); },
         }, el('span', { class: 'dots' })) : null),
       el('div', { class: 'card-info' },
@@ -1069,8 +1149,8 @@ async function showCollectionEditor(tcg, collectionId) {
         name: c.name, rarity: c.rarity, image: c.image, price: c.price, quantity: c.quantity, attrs: c.attrs,
         variants: c.variants, variant_qty: c.variant_qty,
       }),
-      subtitle: () => `${draft.name.trim() || 'New collection'} · ${draft.cards.length} card${draft.cards.length === 1 ? '' : 's'}`,
-      hint: 'Click a card to add it to the collection or remove it. Use ⋮ on the ones in it to set how many you own.',
+      subtitle: () => `${draft.name.trim() || tr('New collection')} · ${tr(draft.cards.length === 1 ? '{n} card' : '{n} cards', { n: draft.cards.length })}`,
+      hint: tr('Click a card to add it to the collection or remove it. Use ⋮ on the ones in it to set how many you own.'),
       onClose: () => { refreshPicker = null; },
     });
   };
@@ -1078,7 +1158,7 @@ async function showCollectionEditor(tcg, collectionId) {
   const renderAll = () => { renderSelected(); refreshPicker?.(); };
 
   const nameInput = el('input', {
-    class: 'search name-input', placeholder: `Collection name, e.g. My ${tcg.example} cards`, value: draft.name, maxlength: '80',
+    class: 'search name-input', placeholder: tr('Collection name, e.g. My {example} cards', { example: tcg.example }), value: draft.name, maxlength: '80',
     oninput: (e) => { draft.name = e.target.value; error.textContent = ''; },
   });
   const error = el('p', { class: 'error' });
@@ -1091,23 +1171,23 @@ async function showCollectionEditor(tcg, collectionId) {
     navigate(fn, ...args);
   };
   const save = async () => {
-    if (!draft.name.trim()) { error.textContent = 'Give the collection a name.'; nameInput.focus(); return; }
+    if (!draft.name.trim()) { error.textContent = tr('Give the collection a name.'); nameInput.focus(); return; }
     const id = await window.tcg.saveCustomCollection({ id: draft.id, tcg: tcg.id, name: draft.name.trim(), cards: draft.cards });
     leave(showCollection, tcg, id);
   };
 
   setChildren(view,
     el('div', { class: 'collection-header' },
-      el('h1', { class: 'title' }, isNew ? 'New collection' : 'Edit collection'),
+      el('h1', { class: 'title' }, tr(isNew ? 'New collection' : 'Edit collection')),
       el('div', { class: 'toolbar' },
         el('div', { class: 'toolbar-row' },
-          el('button', { class: 'btn btn-secondary btn-icon', onclick: openPicker }, el('span', { class: 'icon-plus' }), 'Add cards'),
-          el('button', { class: 'btn btn-secondary', onclick: () => backBtn.click() }, 'Cancel'),
-          el('button', { class: 'btn', onclick: save }, isNew ? 'Create collection' : 'Save changes')))),
-    el('label', { class: 'field-label' }, 'Name', nameInput),
+          el('button', { class: 'btn btn-secondary btn-icon', onclick: openPicker }, el('span', { class: 'icon-plus' }), tr('Add cards')),
+          el('button', { class: 'btn btn-secondary', onclick: () => backBtn.click() }, tr('Cancel')),
+          el('button', { class: 'btn', onclick: save }, tr(isNew ? 'Create collection' : 'Save changes'))))),
+    el('label', { class: 'field-label' }, tr('Name'), nameInput),
     error,
     el('div', { class: 'section-head sets-head' }, selectedTitle),
-    el('p', { class: 'muted hint' }, 'Click a card to mark whether you own it. Use ⋮ to remove it from the collection.'),
+    el('p', { class: 'muted hint' }, tr('Click a card to mark whether you own it. Use ⋮ to remove it from the collection.')),
     selectedGrid
   );
   renderSelected();
@@ -1147,13 +1227,19 @@ const deckFormat = (deck) => (DECK_FORMATS[deck.tcg] || []).find((f) => f.id ===
 const specialSlot = (fmt) => (fmt.commander ? { role: 'commander', label: 'Commander', max: 2 }
   : fmt.leader ? { role: 'leader', label: 'Leader', max: 1 } : null);
 const typesOf = (c) => [].concat(c.attrs?.type || []);
+// Nombre traducido del formato y del hueco aparte (en minúscula para usarlo dentro de una frase).
+const fmtName = (fmt) => tr(fmt.name);
+const slotName = (s) => tr(s.label).toLowerCase();
 
 function formatHint(fmt) {
-  if (fmt.commander) return '100 cards including the commander, one copy of each card (basic lands aside), all in the commander\'s colors.';
-  if (fmt.leader) return `1 leader${fmt.size ? ` plus ${fmt.size} cards` : ''}${fmt.maxCopies ? `, up to ${fmt.maxCopies} copies of each card` : ''}, all in the leader's colors.`;
-  if (fmt.size) return `${fmt.size} cards, up to ${fmt.maxCopies} copies of each card (basic Energy aside).`;
-  if (fmt.min) return `At least ${fmt.min} cards, up to ${fmt.maxCopies} copies of each card (basic lands aside). Card legality comes from Scryfall.`;
-  return 'No deck-building rules: any cards, any number of copies.';
+  if (fmt.commander) return tr('100 cards including the commander, one copy of each card (basic lands aside), all in the commander\'s colors.');
+  if (fmt.leader) {
+    return fmt.size ? tr('1 leader plus {size} cards, up to {max} copies of each card, all in the leader\'s colors.', { size: fmt.size, max: fmt.maxCopies })
+      : tr('1 leader, all in the leader\'s colors.');
+  }
+  if (fmt.size) return tr('{size} cards, up to {max} copies of each card (basic Energy aside).', { size: fmt.size, max: fmt.maxCopies });
+  if (fmt.min) return tr('At least {min} cards, up to {max} copies of each card (basic lands aside). Card legality comes from Scryfall.', { min: fmt.min, max: fmt.maxCopies });
+  return tr('No deck-building rules: any cards, any number of copies.');
 }
 
 // Copias que tienes en tu colección. En Magic y One Piece vale cualquier impresión de la carta; en Pokémon, solo esa.
@@ -1192,7 +1278,7 @@ const isBasic = (deck, c) => (deck.tcg === 'magic'
   : deck.tcg === 'pokemon' && c.attrs?.subtype === 'Basic Energy');
 const nameList = (cards) => {
   const names = [...new Set(cards.map((c) => c.name))];
-  return names.length > 5 ? `${names.slice(0, 5).join(', ')} and ${names.length - 5} more` : names.join(', ');
+  return names.length > 5 ? tr('{list} and {n} more', { list: names.slice(0, 5).join(', '), n: names.length - 5 }) : names.join(', ');
 };
 
 // Lo que no cumple las reglas del formato: issues, frases para el recuadro de avisos; problems, por cada carta
@@ -1207,11 +1293,13 @@ function deckIssues(deck, cards) {
   const flag = (list, reason) => {
     for (const c of list) problems.set(c.id, [...(problems.get(c.id) || []), reason]);
   };
-  if (slot && !special.length) issues.push(`Choose a ${slot.label.toLowerCase()}.`);
+  if (slot && !special.length) issues.push(tr('Choose a {slot}.', { slot: slotName(slot) }));
   if (fmt.size && total !== fmt.size) {
-    issues.push(`The deck needs exactly ${fmt.size} cards${fmt.commander ? ' including the commander' : fmt.leader ? ' plus the leader' : ''}: it has ${total}.`);
+    issues.push(tr(fmt.commander ? 'The deck needs exactly {size} cards including the commander: it has {total}.'
+      : fmt.leader ? 'The deck needs exactly {size} cards plus the leader: it has {total}.'
+      : 'The deck needs exactly {size} cards: it has {total}.', { size: fmt.size, total }));
   }
-  if (fmt.min && total < fmt.min) issues.push(`The deck needs at least ${fmt.min} cards: it has ${total}.`);
+  if (fmt.min && total < fmt.min) issues.push(tr('The deck needs at least {min} cards: it has {total}.', { min: fmt.min, total }));
   if (fmt.maxCopies) {
     // La misma carta: mismo código en One Piece (artes alternativos incluidos), mismo nombre en Magic y Pokémon.
     const counts = new Map();
@@ -1223,36 +1311,38 @@ function deckIssues(deck, cards) {
       counts.set(key, entry);
     }
     const over = [...counts.values()].filter((e) => e.n > fmt.maxCopies);
-    for (const e of over) flag(e.cards, `${e.n} copies: at most ${fmt.maxCopies} allowed`);
-    const basics = deck.tcg === 'magic' ? ' (basic lands aside)' : deck.tcg === 'pokemon' ? ' (basic Energy aside)' : '';
+    for (const e of over) flag(e.cards, tr('{n} copies: at most {max} allowed', { n: e.n, max: fmt.maxCopies }));
+    const basics = deck.tcg === 'magic' ? ` ${tr('(basic lands aside)')}` : deck.tcg === 'pokemon' ? ` ${tr('(basic Energy aside)')}` : '';
     if (over.length) {
-      issues.push(fmt.maxCopies === 1 ? `Only one copy of each card${basics}: ${nameList(over)}.`
-        : `At most ${fmt.maxCopies} copies of each card${basics}: ${nameList(over)}.`);
+      issues.push(fmt.maxCopies === 1 ? tr('Only one copy of each card{basics}: {cards}.', { basics, cards: nameList(over) })
+        : tr('At most {max} copies of each card{basics}: {cards}.', { max: fmt.maxCopies, basics, cards: nameList(over) }));
     }
   }
   if (fmt.legal) {
     const illegal = cards.filter((c) => Array.isArray(c.legal) && !c.legal.includes(fmt.legal));
-    if (illegal.length) issues.push(`Not legal in ${fmt.name}: ${nameList(illegal)}.`);
-    flag(illegal, `Not legal in ${fmt.name}`);
+    if (illegal.length) issues.push(tr('Not legal in {format}: {cards}.', { format: fmtName(fmt), cards: nameList(illegal) }));
+    flag(illegal, tr('Not legal in {format}', { format: fmtName(fmt) }));
   }
   if (fmt.commander && special.length && special.every((c) => Array.isArray(c.color_identity))) {
     const identity = new Set(special.flatMap((c) => c.color_identity));
     const outside = main.filter((c) => Array.isArray(c.color_identity) && c.color_identity.some((x) => !identity.has(x)));
-    if (outside.length) issues.push(`Outside the commander's colors: ${nameList(outside)}.`);
-    flag(outside, "Outside the commander's colors");
+    if (outside.length) issues.push(tr('Outside the commander\'s colors: {cards}.', { cards: nameList(outside) }));
+    flag(outside, tr("Outside the commander's colors"));
   }
   if (fmt.leader) {
     const leaders = main.filter((c) => typesOf(c).includes('Leader'));
-    if (leaders.length) issues.push(`Leaders can't go in the main deck: ${nameList(leaders)}.`);
-    flag(leaders, "Leaders can't go in the main deck");
+    if (leaders.length) issues.push(tr('Leaders can\'t go in the main deck: {cards}.', { cards: nameList(leaders) }));
+    flag(leaders, tr("Leaders can't go in the main deck"));
     const colors = new Set(special.flatMap((c) => c.attrs?.colors || []));
     const outside = colors.size ? main.filter((c) => !typesOf(c).includes('Leader') && c.attrs?.colors?.length
       && !c.attrs.colors.some((x) => colors.has(x))) : [];
-    if (outside.length) issues.push(`Not in the leader's colors: ${nameList(outside)}.`);
-    flag(outside, "Not in the leader's colors");
+    if (outside.length) issues.push(tr('Not in the leader\'s colors: {cards}.', { cards: nameList(outside) }));
+    flag(outside, tr("Not in the leader's colors"));
   }
   return { issues, problems };
 }
+
+const collectionLine = (c) => (c.quantity > 0 ? tr('In your collection: {n}', { n: c.quantity }) : tr('Not in your collection'));
 
 // Carta de un resultado de búsqueda en el formato que guarda el mazo.
 function deckDraftCard(c) {
@@ -1261,6 +1351,13 @@ function deckDraftCard(c) {
     price: c.price ?? c.market_price, attrs: c.attrs, colorIdentity: c.color_identity, legal: c.legal,
     tcgplayerId: c.tcgplayer_id, scryfallUri: c.scryfall_uri,
   };
+}
+
+// "40 / 60 cards · 12 / 40 owned" (sin tamaño fijo, solo el total de cartas).
+function deckCountText(fmt, total, owned, copies) {
+  const count = fmt.size ? tr('{owned} / {total} cards', { owned: total, total: fmt.size })
+    : tr(total === 1 ? '{n} card' : '{n} cards', { n: total });
+  return count + (copies ? ` · ${tr('{owned} / {total} owned', { owned, total: copies })}` : '');
 }
 
 // Tarjeta de un mazo: la portada difuminada de fondo y la carta encima, para distinguirla de un set.
@@ -1273,13 +1370,11 @@ function deckTile(deck) {
     el('div', { class: 'deck-tile-bg' }, image ? el('img', { src: image, alt: '', loading: 'lazy' }) : null),
     el('img', { class: 'deck-tcg-badge', src: tcg.image, alt: tcg.name, title: tcg.name }),
     el('div', { class: 'deck-tile-cover' },
-      image ? el('img', { src: image, alt: cover.name, loading: 'lazy' }) : el('div', { class: 'deck-empty-cover' }, 'No cards yet')),
+      image ? el('img', { src: image, alt: cover.name, loading: 'lazy' }) : el('div', { class: 'deck-empty-cover' }, tr('No cards yet'))),
     el('div', { class: 'deck-tile-info' },
       el('div', { class: 'set-name' }, deck.name),
-      el('div', { class: 'collection-meta' }, `${tcg.name} · ${fmt.name}`),
-      el('div', { class: 'collection-meta' },
-        `${total}${fmt.size ? ` / ${fmt.size}` : ''} card${total === 1 && !fmt.size ? '' : 's'}`
-        + (copies ? ` · ${owned} / ${copies} owned` : '')),
+      el('div', { class: 'collection-meta' }, `${tcg.name} · ${fmtName(fmt)}`),
+      el('div', { class: 'collection-meta' }, deckCountText(fmt, total, owned, copies)),
       copies ? progressBar(owned, copies) : null));
 }
 
@@ -1287,16 +1382,16 @@ function deckTile(deck) {
 const decksState = { tcg: '' };
 
 async function showDecks() {
-  setChrome('My decks');
-  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, 'Loading decks…')));
+  setChrome(tr('My decks'));
+  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading decks…'))));
   let decks;
   try {
     decks = await window.tcg.listDecks();
   } catch (err) {
     setChildren(view,
-      el('p', { class: 'error' }, 'Could not load the decks.'),
+      el('p', { class: 'error' }, tr('Could not load the decks.')),
       el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showDecks() }, 'Retry'));
+      el('button', { class: 'btn', onclick: () => showDecks() }, tr('Retry')));
     return;
   }
   if (!decks.some((d) => d.tcg === decksState.tcg)) decksState.tcg = '';
@@ -1305,16 +1400,16 @@ async function showDecks() {
   const grid = el('div', { class: 'deck-grid' });
   const render = () => {
     const count = (id) => decks.filter((d) => d.tcg === id).length;
-    setChildren(chips, decks.length ? [['', `All (${decks.length})`],
+    setChildren(chips, decks.length ? [['', tr('All ({n})', { n: decks.length })],
       ...TCGS.filter((t) => count(t.id)).map((t) => [t.id, `${t.name} (${count(t.id)})`])].map(([key, label]) =>
       optionChip(label, decksState.tcg === key, () => { decksState.tcg = key; render(); })) : null);
     const list = decks.filter((d) => !decksState.tcg || d.tcg === decksState.tcg);
     setChildren(grid, list.map(deckTile));
-    if (!list.length) grid.append(el('p', { class: 'muted' }, 'No decks yet. Use Create deck to build your first one.'));
+    if (!list.length) grid.append(el('p', { class: 'muted' }, tr('No decks yet. Use Create deck to build your first one.')));
   };
 
   const create = async () => {
-    const draft = await deckDialog({ title: 'New deck', okLabel: 'Create deck', tcg: decksState.tcg || 'magic' });
+    const draft = await deckDialog({ title: tr('New deck'), okLabel: tr('Create deck'), tcg: decksState.tcg && !hiddenTcgs.has(decksState.tcg) ? decksState.tcg : visibleTcgs()[0].id });
     if (!draft) return;
     navigate(showDeck, await window.tcg.createDeck(draft));
   };
@@ -1322,14 +1417,14 @@ async function showDecks() {
   setChildren(view,
     el('div', { class: 'collection-header' },
       el('div', {},
-        el('h1', { class: 'title' }, 'My decks'),
-        el('div', { class: 'counter' }, `${decks.length} deck${decks.length === 1 ? '' : 's'}`)),
+        el('h1', { class: 'title' }, tr('My decks')),
+        el('div', { class: 'counter' }, tr(decks.length === 1 ? '{n} deck' : '{n} decks', { n: decks.length }))),
       el('div', { class: 'toolbar' },
         el('div', { class: 'toolbar-row' },
-          el('button', { class: 'btn btn-icon', onclick: create }, el('span', { class: 'icon-plus' }), 'Create deck')),
+          el('button', { class: 'btn btn-icon', onclick: create }, el('span', { class: 'icon-plus' }), tr('Create deck'))),
         el('div', { class: 'toolbar-row' }, chips))),
     el('p', { class: 'muted hint' },
-      'A card added to a deck is not added to your collection: the deck shows whether you own it or not.'),
+      tr('A card added to a deck is not added to your collection: the deck shows whether you own it or not.')),
     grid);
   render();
 }
@@ -1341,7 +1436,7 @@ function deckDialog({ title, okLabel, deck = null, tcg = 'magic' }) {
     const draft = { name: deck?.name || '', tcg: deck?.tcg || tcg, format: deck?.format || null };
     const error = el('p', { class: 'error deck-dialog-error' });
     const input = el('input', {
-      class: 'qty-input', placeholder: 'e.g. Mono red aggro', maxlength: '80', value: draft.name,
+      class: 'qty-input', placeholder: tr('e.g. Mono red aggro'), maxlength: '80', value: draft.name,
       oninput: (e) => { draft.name = e.target.value; error.textContent = ''; },
     });
     const body = el('div', { class: 'export-groups' });
@@ -1353,13 +1448,13 @@ function deckDialog({ title, okLabel, deck = null, tcg = 'magic' }) {
       const formats = DECK_FORMATS[draft.tcg];
       if (!formats.some((f) => f.id === draft.format)) draft.format = formats[0].id;
       setChildren(body,
-        deck ? null : group('TCG', TCGS.filter((t) => t.enabled).map((t) => [t.id, t.name]), draft.tcg, (v) => { draft.tcg = v; }),
-        group('Format', formats.map((f) => [f.id, f.name]), draft.format, (v) => { draft.format = v; }),
+        deck ? null : group('TCG', visibleTcgs().map((t) => [t.id, t.name]), draft.tcg, (v) => { draft.tcg = v; }),
+        group(tr('Format'), formats.map((f) => [f.id, fmtName(f)]), draft.format, (v) => { draft.format = v; }),
         el('p', { class: 'muted export-hint' }, formatHint(formats.find((f) => f.id === draft.format))));
     };
     const close = (value) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
     const accept = () => {
-      if (!draft.name.trim()) { error.textContent = 'Give the deck a name.'; input.focus(); return; }
+      if (!draft.name.trim()) { error.textContent = tr('Give the deck a name.'); input.focus(); return; }
       close({ name: draft.name.trim(), tcg: draft.tcg, format: draft.format });
     };
     const onKey = (e) => {
@@ -1369,12 +1464,12 @@ function deckDialog({ title, okLabel, deck = null, tcg = 'magic' }) {
     const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(null); } },
       el('div', { class: 'dialog export-dialog', role: 'dialog' },
         el('h3', {}, title),
-        el('p', { class: 'muted' }, deck ? tcgById(deck.tcg).name : 'Choose a name, the TCG and the format. You can change the name and format later.'),
-        el('label', { class: 'dialog-label deck-name-label' }, 'Name', input),
+        el('p', { class: 'muted' }, deck ? tcgById(deck.tcg).name : tr('Choose a name, the TCG and the format. You can change the name and format later.')),
+        el('label', { class: 'dialog-label deck-name-label' }, tr('Name'), input),
         error,
         body,
         el('div', { class: 'dialog-actions' },
-          el('button', { class: 'chip', onclick: () => close(null) }, 'Cancel'),
+          el('button', { class: 'chip', onclick: () => close(null) }, tr('Cancel')),
           el('button', { class: 'btn', onclick: accept }, okLabel))));
     render();
     document.addEventListener('keydown', onKey, true);
@@ -1402,19 +1497,19 @@ const GROUP_TITLES = {
 const deckViewState = {}; // filtro All / Owned / Not owned, por mazo
 
 async function showDeck(deckId) {
-  setChrome('My decks › …');
-  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, 'Loading deck…')));
+  setChrome(`${tr('My decks')} › …`);
+  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading deck…'))));
   let data;
   try {
     data = await window.tcg.getDeck(deckId);
   } catch (err) {
     setChildren(view,
-      el('p', { class: 'error' }, 'Could not load the deck.'),
+      el('p', { class: 'error' }, tr('Could not load the deck.')),
       el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showDeck(deckId) }, 'Retry'));
+      el('button', { class: 'btn', onclick: () => showDeck(deckId) }, tr('Retry')));
     return;
   }
-  if (!data) { setChildren(view, el('p', { class: 'error' }, 'This deck no longer exists.')); return; }
+  if (!data) { setChildren(view, el('p', { class: 'error' }, tr('This deck no longer exists.'))); return; }
   let { deck, cards } = data;
   const tcg = tcgById(deck.tcg);
   const state = (deckViewState[deckId] ||= { status: '' });
@@ -1460,22 +1555,22 @@ async function showDeck(deckId) {
     const s = slot();
     const owned = deckCardStatus(deck, c) === 'owned';
     return [
-      c.role === 'main' ? { label: 'Add 1 copy', icon: '+', sound: 'add', onClick: () => changeCopies(c, 1) } : null,
+      c.role === 'main' ? { label: tr('Add 1 copy'), icon: '+', sound: 'add', onClick: () => changeCopies(c, 1) } : null,
       c.role === 'main' && c.quantity > 1
-        ? { label: 'Remove 1 copy', icon: '−', sound: 'remove', onClick: () => removeCopy(c) } : null,
+        ? { label: tr('Remove 1 copy'), icon: '−', sound: 'remove', onClick: () => removeCopy(c) } : null,
       { separator: true },
-      { label: owned ? 'Mark as not owned in this deck' : 'Mark as owned in this deck', icon: owned ? '○' : '✓',
+      { label: tr(owned ? 'Mark as not owned in this deck' : 'Mark as owned in this deck'), icon: owned ? '○' : '✓',
         sound: owned ? 'remove' : 'add', onClick: () => toggleOwned(c) },
-      c.owned_override != null ? { label: 'Follow my collection again', icon: '↺', onClick: () => updateCard(c, { ownedOverride: null }) } : null,
-      deckCover(deck, cards)?.id === c.id ? null : { label: 'Set as deck cover', icon: '★', onClick: () => setCover(c) },
+      c.owned_override != null ? { label: tr('Follow my collection again'), icon: '↺', onClick: () => updateCard(c, { ownedOverride: null }) } : null,
+      deckCover(deck, cards)?.id === c.id ? null : { label: tr('Set as deck cover'), icon: '★', onClick: () => setCover(c) },
       s && c.role === 'main' && canBeSpecial(c) && (s.max === 1 || special().length < s.max)
-        ? { label: `Set as ${s.label.toLowerCase()}`, icon: '♛', onClick: () => setSpecial(c) } : null,
+        ? { label: tr('Set as {slot}', { slot: slotName(s) }), icon: '♛', onClick: () => setSpecial(c) } : null,
       s?.role === 'commander' && c.role === 'commander'
-        ? { label: 'Move to the main deck', icon: '↓', onClick: () => updateCard(c, { role: 'main' }) } : null,
+        ? { label: tr('Move to the main deck'), icon: '↓', onClick: () => updateCard(c, { role: 'main' }) } : null,
       { separator: true },
       ...cardLinkItems(tcg, c),
       { separator: true },
-      { label: 'Remove from deck', icon: '×', sound: 'remove', onClick: () => updateCard(c, { quantity: 0 }) },
+      { label: tr('Remove from deck'), icon: '×', sound: 'remove', onClick: () => updateCard(c, { quantity: 0 }) },
     ];
   };
 
@@ -1484,24 +1579,25 @@ async function showDeck(deckId) {
     const status = deckCardStatus(deck, c);
     const reasons = problems.get(c.id);
     const have = deckHave(deck, c);
-    const ownLine = c.owned_override === 0 ? 'Not owned in this deck'
-      : c.owned_override === 1 ? 'Owned in this deck'
-      : !have ? 'Not in your collection'
-      : status === 'partial' ? `You have ${have} of ${c.quantity}`
-      : `You have ${have}${c.have_exact < c.quantity && deck.tcg !== 'pokemon' ? ' (another print)' : ''}`;
+    const ownLine = c.owned_override === 0 ? tr('Not owned in this deck')
+      : c.owned_override === 1 ? tr('Owned in this deck')
+      : !have ? tr('Not in your collection')
+      : status === 'partial' ? tr('You have {have} of {n}', { have, n: c.quantity })
+      : c.have_exact < c.quantity && deck.tcg !== 'pokemon' ? tr('You have {have} (another print)', { have })
+      : tr('You have {have}', { have });
     return el('div', {
       class: 'card deck-card' + (status === 'owned' ? ' owned' : status === 'partial' ? ' partial' : '')
         + (c.owned_override != null ? ' overridden' : '') + (reasons ? ' has-problem' : ''),
-      title: status === 'owned' ? 'Owned (click to mark it as not owned in this deck)' : 'Not owned (click to mark it as owned in this deck)',
+      title: tr(status === 'owned' ? 'Owned (click to mark it as not owned in this deck)' : 'Not owned (click to mark it as owned in this deck)'),
       onclick: () => { sfx.play(status === 'owned' ? 'remove' : 'add'); toggleOwned(c); },
     },
       el('div', { class: 'card-img-wrap' },
         c.image_url ? el('img', { src: cardImage(c.image_url), alt: c.name, loading: 'lazy' })
-          : el('div', { class: 'no-image' }, c.name, el('br'), 'No image'),
+          : el('div', { class: 'no-image' }, c.name, el('br'), tr('No image')),
         expandButton(c),
         el('div', { class: 'check' }, status === 'owned' ? '✓' : ''),
         el('button', {
-          class: 'card-menu-btn', title: 'Actions',
+          class: 'card-menu-btn', title: tr('Actions'),
           onclick: (e) => { e.stopPropagation(); openCardMenu(e.currentTarget, menuFor(c)); },
         }, el('span', { class: 'dots' })),
         // En rojo si la carta incumple alguna regla del formato (copias de más, color, legalidad…).
@@ -1509,15 +1605,15 @@ async function showDeck(deckId) {
         // Al pasar el ratón, − / + para cambiar las copias sin abrir el menú (el commander / líder no lleva).
         c.role === 'main' ? el('div', { class: 'deck-stepper', onclick: (e) => e.stopPropagation() },
           el('button', {
-            class: 'deck-step', title: c.quantity > 1 ? 'Remove a copy' : 'Remove from the deck',
+            class: 'deck-step', title: tr(c.quantity > 1 ? 'Remove a copy' : 'Remove from the deck'),
             onclick: () => { sfx.play('remove'); removeCopy(c); },
           }, el('span', { class: 'icon-minus' })),
           el('span', { class: 'deck-step-qty' }, `×${c.quantity}`),
           el('button', {
-            class: 'deck-step', title: 'Add a copy',
+            class: 'deck-step', title: tr('Add a copy'),
             onclick: () => { sfx.play('add'); changeCopies(c, 1); },
           }, el('span', { class: 'icon-plus' }))) : null,
-        deckCover(deck, cards)?.id === c.id ? el('div', { class: 'deck-cover-badge', title: 'Deck cover' }, '★') : null),
+        deckCover(deck, cards)?.id === c.id ? el('div', { class: 'deck-cover-badge', title: tr('Deck cover') }, '★') : null),
       el('div', { class: 'card-info' },
         el('div', { class: 'card-name' }, `#${c.local_id} ${c.name}`),
         el('div', { class: 'card-sub' }, c.set_name || c.set_id || ''),
@@ -1534,17 +1630,17 @@ async function showDeck(deckId) {
   const slotBox = el('div', {});
   const renderHeader = () => {
     const { fmt, total, copies, owned } = deckStats(deck, cards);
-    setChrome(`My decks › ${deck.name}`, tcg);
+    setChrome(`${tr('My decks')} › ${deck.name}`, tcg);
     title.textContent = deck.name;
-    meta.textContent = `${tcg.name} · ${fmt.name}`;
-    counter.textContent = `${total}${fmt.size ? ` / ${fmt.size}` : ''} cards · ${owned} / ${copies} owned`;
+    meta.textContent = `${tcg.name} · ${fmtName(fmt)}`;
+    counter.textContent = deckCountText(fmt, total, owned, copies);
     bar.style.width = `${copies ? (owned / copies) * 100 : 0}%`;
     let issues;
     ({ issues, problems } = deckIssues(deck, cards));
     issuesBox.classList.toggle('ok', !issues.length);
     setChildren(issuesBox, !cards.length ? null : issues.length
-      ? [el('div', { class: 'deck-issues-title' }, `${fmt.name} check`), el('ul', {}, issues.map((t) => el('li', {}, t)))]
-      : el('div', { class: 'deck-issues-title' }, `✓ Ready for ${fmt.name}`));
+      ? [el('div', { class: 'deck-issues-title' }, tr('{format} check', { format: fmtName(fmt) })), el('ul', {}, issues.map((t) => el('li', {}, t)))]
+      : el('div', { class: 'deck-issues-title' }, `✓ ${tr('Ready for {format}', { format: fmtName(fmt) })}`));
     issuesBox.classList.toggle('hidden', !cards.length || (!issues.length && !fmt.size && !fmt.min && !specialSlot(fmt)));
   };
   const renderSlot = () => {
@@ -1553,17 +1649,17 @@ async function showDeck(deckId) {
     const list = special();
     setChildren(slotBox,
       el('div', { class: 'section-head sets-head' },
-        el('h2', { class: 'section-title' }, list.length > 1 ? `${s.label}s` : s.label),
+        el('h2', { class: 'section-title' }, tr(list.length > 1 ? `${s.label}s` : s.label)),
         el('div', { class: 'section-actions' },
           list.length && list.length < s.max
-            ? el('button', { class: 'chip', title: 'Add a second commander (Partner, Background…)', onclick: () => chooseSpecial(false) },
-              'Add partner') : null,
+            ? el('button', { class: 'chip', title: tr('Add a second commander (Partner, Background…)'), onclick: () => chooseSpecial(false) },
+              tr('Add partner')) : null,
           el('button', { class: 'btn btn-secondary', onclick: () => chooseSpecial(true) },
-            `${list.length ? 'Change' : 'Choose'} ${s.label.toLowerCase()}`))),
+            tr(list.length ? 'Change {slot}' : 'Choose {slot}', { slot: slotName(s) })))),
       el('div', { class: 'card-grid' },
         list.map(tile),
         list.length ? null : el('button', { class: 'deck-slot-empty', onclick: () => chooseSpecial(true) },
-          el('span', { class: 'icon-plus' }), `Choose ${s.label.toLowerCase()}`)));
+          el('span', { class: 'icon-plus' }), tr('Choose {slot}', { slot: slotName(s) }))));
   };
 
   // ---- Cartas del mazo, agrupadas por tipo ----
@@ -1572,8 +1668,8 @@ async function showDeck(deckId) {
   const cardsBox = el('div', {});
   const renderCards = () => {
     const main = cards.filter((c) => c.role === 'main');
-    cardsTitle.textContent = `Deck (${main.reduce((n, c) => n + c.quantity, 0)})`;
-    setChildren(quickChips, [['', 'All'], ['owned', 'Owned'], ['missing', 'Not owned']].map(([k, label]) =>
+    cardsTitle.textContent = tr('Deck ({n})', { n: main.reduce((n, c) => n + c.quantity, 0) });
+    setChildren(quickChips, [['', tr('All')], ...ownedStatus()].map(([k, label]) =>
       optionChip(label, state.status === k, () => { state.status = k; renderCards(); })));
     const visible = main.filter((c) => !state.status || (deckCardStatus(deck, c) === 'owned') === (state.status === 'owned'));
     const { order, priority = order } = DECK_GROUPS[deck.tcg];
@@ -1582,11 +1678,11 @@ async function showDeck(deckId) {
       const list = visible.filter((c) => groupOf(c) === type).sort((a, b) => a.name.localeCompare(b.name));
       if (!list.length) return null;
       return el('section', { class: 'deck-group' },
-        el('h3', { class: 'deck-group-title' }, `${GROUP_TITLES[type] || type} (${list.reduce((n, c) => n + c.quantity, 0)})`),
+        el('h3', { class: 'deck-group-title' }, `${tr(GROUP_TITLES[type] || type)} (${list.reduce((n, c) => n + c.quantity, 0)})`),
         el('div', { class: 'card-grid' }, list.map(tile)));
     }));
     if (!visible.length) cardsBox.append(el('p', { class: 'muted' },
-      main.length ? 'No cards match this filter.' : 'No cards yet. Use Add cards to search for some.'));
+      tr(main.length ? 'No cards match this filter.' : 'No cards yet. Use Add cards to search for some.')));
   };
 
   // ---- Diálogo "Add cards" ----
@@ -1602,32 +1698,34 @@ async function showDeck(deckId) {
     const t = { ...c, image_url: c.image, local_id: c.localId };
     return el('div', {
       class: 'card pick deck-pick' + (entry ? ' owned' : ''),
-      title: special ? `This card is the deck's ${entry.role}` : 'Click to add a copy to the deck',
+      title: special ? tr(entry.role === 'leader' ? 'This card is the deck\'s leader' : 'This card is the deck\'s commander')
+        : tr('Click to add a copy to the deck'),
       onclick: () => { if (special) return; sfx.play('add'); addCard(c); },
     },
       el('div', { class: 'card-img-wrap' },
         t.image_url ? el('img', { src: cardImage(t.image_url), alt: c.name, loading: 'lazy' })
-          : el('div', { class: 'no-image' }, c.name, el('br'), 'No image'),
+          : el('div', { class: 'no-image' }, c.name, el('br'), tr('No image')),
         expandButton(t),
-        special ? null : el('div', { class: 'check pick-toggle', title: 'Add a copy' }, el('span', { class: 'icon-plus' })),
+        special ? null : el('div', { class: 'check pick-toggle', title: tr('Add a copy') }, el('span', { class: 'icon-plus' })),
         entry && !special ? el('button', {
-          class: 'pick-minus', title: 'Remove a copy',
+          class: 'pick-minus', title: tr('Remove a copy'),
           onclick: (e) => { e.stopPropagation(); sfx.play('remove'); removeCopy(c); },
         }, el('span', { class: 'icon-minus' })) : null,
-        entry ? el('div', { class: 'deck-qty' }, special ? (entry.role === 'leader' ? 'Leader' : 'Commander') : `×${entry.quantity} in deck`) : null),
+        entry ? el('div', { class: 'deck-qty' }, special ? tr(entry.role === 'leader' ? 'Leader' : 'Commander')
+          : tr('×{n} in deck', { n: entry.quantity })) : null),
       el('div', { class: 'card-info' },
         el('div', { class: 'card-name' }, `#${c.localId} ${c.name}`),
         el('div', { class: 'card-sub' }, c.set?.name || ''),
-        el('div', { class: 'card-sub' }, c.quantity > 0 ? `In your collection: ${c.quantity}` : 'Not in your collection')));
+        el('div', { class: 'card-sub' }, collectionLine(c))));
   };
   const openPicker = () => {
     refreshPicker = openCardPicker(tcg, {
       search, filterKey: `deck-search:${deck.tcg}`, pickTile: pickerTile,
       subtitle: () => {
         const { fmt, total } = deckStats(deck, cards);
-        return `${deck.name} · ${total}${fmt.size ? ` / ${fmt.size}` : ''} cards`;
+        return `${deck.name} · ${deckCountText(fmt, total, 0, 0)}`;
       },
-      hint: 'Click a card (or +) to add a copy, − to take one out. Your collection does not change.',
+      hint: tr('Click a card (or +) to add a copy, − to take one out. Your collection does not change.'),
       onClose: () => { refreshPicker = null; },
     });
   };
@@ -1635,7 +1733,7 @@ async function showDeck(deckId) {
   const renderAll = () => { renderHeader(); renderSlot(); renderCards(); refreshPicker?.(); };
 
   const editDeck = async () => {
-    const next = await deckDialog({ title: 'Edit deck', okLabel: 'Save', deck });
+    const next = await deckDialog({ title: tr('Edit deck'), okLabel: tr('Save'), deck });
     if (!next) return;
     ({ deck, cards } = await window.tcg.updateDeck(deck.id, { name: next.name, format: next.format }));
     // Si el formato nuevo no tiene el hueco del anterior (p. ej. de Commander a Modern), sus cartas pasan al mazo.
@@ -1646,8 +1744,8 @@ async function showDeck(deckId) {
     renderAll();
   };
   const removeDeck = async () => {
-    const ok = await confirmDialog('Delete deck',
-      `Delete "${deck.name}"? Your collection does not change: the cards you own stay marked in their sets.`, 'Delete');
+    const ok = await confirmDialog(tr('Delete deck'),
+      tr('Delete "{name}"? Your collection does not change: the cards you own stay marked in their sets.', { name: deck.name }), tr('Delete'));
     if (!ok) return;
     await window.tcg.deleteDeck(deck.id);
     navStack.pop();
@@ -1660,14 +1758,14 @@ async function showDeck(deckId) {
       el('div', {}, title, meta, counter, el('div', { class: 'progress wide' }, bar)),
       el('div', { class: 'toolbar' },
         el('div', { class: 'toolbar-row' },
-          el('button', { class: 'btn btn-icon', onclick: openPicker }, el('span', { class: 'icon-plus' }), 'Add cards'),
-          el('button', { class: 'btn btn-secondary', onclick: editDeck }, 'Edit deck'),
-          el('button', { class: 'btn btn-danger', onclick: removeDeck }, 'Delete deck')))),
+          el('button', { class: 'btn btn-icon', onclick: openPicker }, el('span', { class: 'icon-plus' }), tr('Add cards')),
+          el('button', { class: 'btn btn-secondary', onclick: editDeck }, tr('Edit deck')),
+          el('button', { class: 'btn btn-danger', onclick: removeDeck }, tr('Delete deck'))))),
     issuesBox,
     slotBox,
     el('div', { class: 'section-head sets-head' }, cardsTitle, quickChips),
-    el('p', { class: 'muted hint' }, 'Click a card to mark whether you own it in this deck: your collection does not change. '
-      + 'Hover over it and use − / + to change the copies, or ⋮ for the deck cover and more.'),
+    el('p', { class: 'muted hint' }, tr('Click a card to mark whether you own it in this deck: your collection does not change. '
+      + 'Hover over it and use − / + to change the copies, or ⋮ for the deck cover and more.')),
     cardsBox);
   renderAll();
 }
@@ -1686,42 +1784,42 @@ function pickSpecialCard(tcg, slot) {
     const body = el('div', { class: 'printings-body' });
     const input = el('input', {
       class: 'search', type: 'search',
-      placeholder: isCommander ? 'Search commanders, e.g. Atraxa' : 'Search leaders, e.g. Luffy',
+      placeholder: tr(isCommander ? 'Search commanders, e.g. Atraxa' : 'Search leaders, e.g. Luffy'),
       onkeydown: (e) => { if (e.key === 'Enter') run(); },
     });
     const run = async () => {
       const q = input.value.trim();
       if (q.length < 2) { setChildren(body); return; }
-      setChildren(body, el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, 'Searching…')));
+      setChildren(body, el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, tr('Searching…'))));
       try {
         // Scryfall: is:commander = cartas que pueden ser commander (legendarias, o que lo dicen en su texto).
         const found = (await window.tcg.searchCards(isCommander ? `${q} is:commander` : q, tcg.id))
           .filter((c) => isCommander || typesOf(c).includes('Leader'));
         if (input.value.trim() !== q) return;
-        setChildren(body, !found.length ? el('p', { class: 'muted' }, `No ${isCommander ? 'commanders' : 'leaders'} found.`) : [
-          el('p', { class: 'muted hint' }, `Click a card to make it the ${slot.label.toLowerCase()}.`),
+        setChildren(body, !found.length ? el('p', { class: 'muted' }, tr(isCommander ? 'No commanders found.' : 'No leaders found.')) : [
+          el('p', { class: 'muted hint' }, tr('Click a card to make it the {slot}.', { slot: slotName(slot) })),
           el('div', { class: 'card-grid' }, found.map((c) => {
             const t = { ...c, image_url: c.image, local_id: c.localId };
             return el('div', { class: 'card pick deck-pick' + (c.quantity > 0 ? ' owned' : ''), onclick: () => close(c) },
               el('div', { class: 'card-img-wrap' },
                 t.image_url ? el('img', { src: cardImage(t.image_url), alt: c.name, loading: 'lazy' })
-                  : el('div', { class: 'no-image' }, c.name, el('br'), 'No image'),
+                  : el('div', { class: 'no-image' }, c.name, el('br'), tr('No image')),
                 expandButton(t)),
               el('div', { class: 'card-info' },
                 el('div', { class: 'card-name' }, `#${c.localId} ${c.name}`),
                 el('div', { class: 'card-sub' }, c.set?.name || ''),
-                el('div', { class: 'card-sub' }, c.quantity > 0 ? `In your collection: ${c.quantity}` : 'Not in your collection')));
+                el('div', { class: 'card-sub' }, collectionLine(c))));
           }))]);
       } catch (err) {
-        setChildren(body, el('p', { class: 'error' }, `Search failed: ${err.message || err}`));
+        setChildren(body, el('p', { class: 'error' }, tr('Search failed: {error}', { error: err.message || err })));
       }
     };
     const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(null); } },
       el('div', { class: 'dialog printings-dialog', role: 'dialog' },
         el('div', { class: 'printings-header' },
-          el('div', {}, el('h3', {}, `Choose ${slot.label.toLowerCase()}`),
-            el('div', { class: 'search-row' }, input, el('button', { class: 'btn', onclick: run }, 'Search'))),
-          el('button', { class: 'chip', onclick: () => close(null) }, 'Close')),
+          el('div', {}, el('h3', {}, tr('Choose {slot}', { slot: slotName(slot) })),
+            el('div', { class: 'search-row' }, input, el('button', { class: 'btn', onclick: run }, tr('Search')))),
+          el('button', { class: 'chip', onclick: () => close(null) }, tr('Close'))),
         body));
     document.addEventListener('keydown', onKey, true);
     document.body.append(overlay);
@@ -1731,8 +1829,8 @@ function pickSpecialCard(tcg, slot) {
 
 // Pide confirmación y borra la colección custom. Devuelve true si se ha borrado.
 async function deleteCustomCollection(collectionId, name) {
-  const ok = await confirmDialog('Delete collection',
-    `Delete "${name || 'this collection'}"? The cards you own stay marked in their sets.`, 'Delete');
+  const ok = await confirmDialog(tr('Delete collection'),
+    tr('Delete "{name}"? The cards you own stay marked in their sets.', { name: name || tr('this collection') }), tr('Delete'));
   if (ok) await window.tcg.deleteCustomCollection(collectionId);
   return ok;
 }
@@ -1747,7 +1845,7 @@ function confirmDialog(title, text, okLabel) {
         el('h3', {}, title),
         el('p', { class: 'muted' }, text),
         el('div', { class: 'dialog-actions' },
-          el('button', { class: 'chip', onclick: () => close(false) }, 'Cancel'),
+          el('button', { class: 'chip', onclick: () => close(false) }, tr('Cancel')),
           el('button', { class: 'btn btn-danger', onclick: () => close(true) }, okLabel))));
     document.addEventListener('keydown', onKey, true);
     document.body.append(overlay);
@@ -1782,10 +1880,10 @@ function setLocalTotal(card, total) {
 // Línea de cantidad bajo la carta: "Qty: 2", o por versión "Qty: 1 Normal · 2 Reverse".
 function qtyLabel(card) {
   const qty = variantQty(card);
-  if (!hasVariants(card) || !card.quantity) return `Qty: ${card.quantity || 0}`;
+  if (!hasVariants(card) || !card.quantity) return `${tr('Qty:')} ${card.quantity || 0}`;
   const order = (key) => { const i = key ? card.variants.findIndex((v) => v.key === key) : 0; return i < 0 ? Infinity : i; };
   const name = (key) => (key ? card.variants.find((v) => v.key === key)?.short || key : card.variants[0].short);
-  return 'Qty: ' + Object.keys(qty).sort((a, b) => order(a) - order(b)).map((k) => `${qty[k]} ${name(k)}`).join(' · ');
+  return `${tr('Qty:')} ` + Object.keys(qty).sort((a, b) => order(a) - order(b)).map((k) => `${qty[k]} ${name(k)}`).join(' · ');
 }
 
 // Opciones comunes del menú ⋮: cantidad, versiones y enlaces externos. setQuantity(n) guarda la nueva cantidad total;
@@ -1798,20 +1896,20 @@ function quantityMenuItems(tcg, card, setQuantity, onPrintingsChange, setVariant
   const setMain = (n) => (variants ? setVariant('', n) : setQuantity(n));
   const mainName = variants ? ` ${variants[0].label}` : '';
   return [
-    { label: `Add 1${mainName}`, icon: '+', sound: 'add', onClick: () => setMain(main + 1) },
+    { label: `${tr('Add 1')}${mainName}`, icon: '+', sound: 'add', onClick: () => setMain(main + 1) },
     {
-      label: `Add several${mainName}…`, icon: '++',
+      label: `${tr('Add several')}${mainName}…`, icon: '++',
       onClick: async () => {
         const n = await askQuantity(card, main, variants?.[0].label);
         if (n) { sfx.play('add'); setMain(main + n); }
       },
     },
-    main > 0 ? { label: `Remove 1${mainName}`, icon: '−', sound: 'remove', onClick: () => setMain(main - 1) } : null,
+    main > 0 ? { label: `${tr('Remove 1')}${mainName}`, icon: '−', sound: 'remove', onClick: () => setMain(main - 1) } : null,
     ...(variants ? [{ separator: true }, ...variants.slice(1).flatMap((v) => [
-      { label: `Add 1 ${v.label}`, icon: '+', sound: 'add', onClick: () => setVariant(v.key, (qty[v.key] || 0) + 1) },
-      qty[v.key] > 0 ? { label: `Remove 1 ${v.label} (${qty[v.key]})`, icon: '−', sound: 'remove', onClick: () => setVariant(v.key, qty[v.key] - 1) } : null,
+      { label: `${tr('Add 1')} ${v.label}`, icon: '+', sound: 'add', onClick: () => setVariant(v.key, (qty[v.key] || 0) + 1) },
+      qty[v.key] > 0 ? { label: `${tr('Remove 1')} ${v.label} (${qty[v.key]})`, icon: '−', sound: 'remove', onClick: () => setVariant(v.key, qty[v.key] - 1) } : null,
     ])] : []),
-    card.quantity > 1 ? { label: `Remove all (${card.quantity})`, icon: '×', sound: 'remove', onClick: () => setQuantity(0) } : null,
+    card.quantity > 1 ? { label: tr('Remove all ({n})', { n: card.quantity }), icon: '×', sound: 'remove', onClick: () => setQuantity(0) } : null,
     { separator: true },
     ...cardLinkItems(tcg, card, async () => {
       const changed = await showPrintings(tcg, card);
@@ -1825,12 +1923,12 @@ function cardLinkItems(tcg, card, onAllArts) {
   const link = { id: card.id, name: card.name, localId: card.local_id, official: card.set_official, tcg: tcg.id,
     tcgplayerId: card.tcgplayer_id, scryfallUri: card.scryfall_uri, setId: card.set_id || card.setId || card.set?.id };
   return [
-    { label: 'View price', icon: '$', onClick: () => showPrices(tcg, card) },
-    onAllArts ? { label: 'View all arts', icon: '❐', onClick: onAllArts } : null,
-    tcg.id === 'pokemon' ? { label: 'View on TCG Collector', icon: '↗', onClick: () => window.tcg.openTcgCollector(link) } : null,
-    tcg.id === 'magic' ? { label: 'View on Scryfall', icon: '↗', onClick: () => window.tcg.openScryfall(link) } : null,
-    tcg.id === 'magic' ? { label: 'View on Moxfield', icon: '↗', onClick: () => window.tcg.openMoxfield(link) } : null,
-    { label: 'View on TCGplayer', icon: '↗', onClick: () => window.tcg.openTcgplayer(link) },
+    { label: tr('View price'), icon: '$', onClick: () => showPrices(tcg, card) },
+    onAllArts ? { label: tr('View all arts'), icon: '❐', onClick: onAllArts } : null,
+    tcg.id === 'pokemon' ? { label: tr('View on {site}', { site: 'TCG Collector' }), icon: '↗', onClick: () => window.tcg.openTcgCollector(link) } : null,
+    tcg.id === 'magic' ? { label: tr('View on {site}', { site: 'Scryfall' }), icon: '↗', onClick: () => window.tcg.openScryfall(link) } : null,
+    tcg.id === 'magic' ? { label: tr('View on {site}', { site: 'Moxfield' }), icon: '↗', onClick: () => window.tcg.openMoxfield(link) } : null,
+    { label: tr('View on {site}', { site: 'TCGplayer' }), icon: '↗', onClick: () => window.tcg.openTcgplayer(link) },
   ];
 }
 
@@ -1840,19 +1938,19 @@ function cardTile(card, onToggle, lines, getMenu) {
   lines = lines || [card.rarity || ''];
   return el('div', {
     class: 'card' + (owned ? ' owned' : '') + (card.hidden ? ' is-hidden' : ''),
-    title: card.quantity > 1 ? `You have ${card.quantity} (change the quantity from ⋮)`
-      : owned ? 'Owned (click to unmark)' : 'Missing (click to mark)',
+    title: card.quantity > 1 ? tr('You have {n} (change the quantity from ⋮)', { n: card.quantity })
+      : tr(owned ? 'Owned (click to unmark)' : 'Missing (click to mark)'),
     // Con más de una copia el clic no cambia nada (se gestiona desde ⋮), así que tampoco suena.
     onclick: (e) => { if (!(card.quantity > 1)) sfx.play(card.quantity > 0 ? 'remove' : 'add'); onToggle(e); },
   },
     el('div', { class: 'card-img-wrap' },
       card.image_url
         ? el('img', { src: cardImage(card.image_url), alt: card.name, loading: 'lazy' })
-        : el('div', { class: 'no-image' }, card.name, el('br'), 'No image'),
+        : el('div', { class: 'no-image' }, card.name, el('br'), tr('No image')),
       expandButton(card),
       el('div', { class: 'check' }, owned ? '✓' : ''),
       getMenu ? el('button', {
-        class: 'card-menu-btn', title: 'Actions',
+        class: 'card-menu-btn', title: tr('Actions'),
         onclick: (e) => { e.stopPropagation(); openCardMenu(e.currentTarget, getMenu()); },
       }, el('span', { class: 'dots' })) : null),
     el('div', { class: 'card-info' },
@@ -1871,7 +1969,7 @@ function expandButton(card) {
   path.setAttribute('d', 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7M3 9V3h6M21 15v6h-6M3 3l7 7M21 21l-7-7');
   svg.append(path);
   return el('button', {
-    class: 'card-expand-btn', title: 'View larger',
+    class: 'card-expand-btn', title: tr('View larger'),
     onclick: (e) => { e.stopPropagation(); sfx.play('zoom'); openModal(card); },
   }, svg);
 }
@@ -1891,13 +1989,13 @@ function showPrintings(tcg, card) {
     };
     const subtitle = el('p', { class: 'muted' }, `#${card.local_id} ${card.name}`);
     const body = el('div', { class: 'printings-body' },
-      el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, 'Looking for other arts…')));
+      el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, tr('Looking for other arts…'))));
     // El header queda fijo arriba y solo se desplaza el cuerpo, para que "Close" siempre se vea.
     const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
       el('div', { class: 'dialog printings-dialog', role: 'dialog' },
         el('div', { class: 'printings-header' },
-          el('div', {}, el('h3', {}, 'All arts'), subtitle),
-          el('button', { class: 'chip', onclick: close }, 'Close')),
+          el('div', {}, el('h3', {}, tr('All arts')), subtitle),
+          el('button', { class: 'chip', onclick: close }, tr('Close'))),
         body));
     document.addEventListener('keydown', onKey, true);
     document.body.append(overlay);
@@ -1905,7 +2003,7 @@ function showPrintings(tcg, card) {
     window.tcg.getPrintings({ id: card.id, name: card.name, localId: card.local_id, tcg: tcg.id }).then((found) => {
       const cards = found.map((c) => ({ ...c, image_url: c.image, local_id: c.localId }));
       if (!cards.length) cards.push({ ...card }); // la API no la encontró: al menos se muestra la propia carta
-      subtitle.textContent = `#${card.local_id} ${card.name} · ${cards.length} art${cards.length === 1 ? '' : 's'}`;
+      subtitle.textContent = `#${card.local_id} ${card.name} · ${tr(cards.length === 1 ? '{n} art' : '{n} arts', { n: cards.length })}`;
       const grid = el('div', { class: 'card-grid' });
       const render = () => setChildren(grid, ...cards.map((c) => {
         const tile = cardTile(c, async () => {
@@ -1921,9 +2019,9 @@ function showPrintings(tcg, card) {
         return tile;
       }));
       render();
-      setChildren(body, el('p', { class: 'muted hint' }, 'Click an art to mark it as owned. The highlighted one is this card.'), grid);
+      setChildren(body, el('p', { class: 'muted hint' }, tr('Click an art to mark it as owned. The highlighted one is this card.')), grid);
     }).catch((err) => {
-      setChildren(body, el('p', { class: 'error' }, `Could not load the other arts: ${err.message || err}`));
+      setChildren(body, el('p', { class: 'error' }, tr('Could not load the other arts: {error}', { error: err.message || err })));
     });
   });
 }
@@ -1934,34 +2032,35 @@ function showPrices(tcg, card) {
   const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
   const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   const body = el('div', { class: 'printings-body' },
-    el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, 'Loading prices…')));
+    el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading prices…'))));
   const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
     el('div', { class: 'dialog printings-dialog prices-dialog', role: 'dialog' },
       el('div', { class: 'printings-header' },
-        el('div', {}, el('h3', {}, 'Prices'), el('p', { class: 'muted' }, `#${card.local_id} ${card.name}`)),
-        el('button', { class: 'chip', onclick: close }, 'Close')),
+        el('div', {}, el('h3', {}, tr('Prices')), el('p', { class: 'muted' }, `#${card.local_id} ${card.name}`)),
+        el('button', { class: 'chip', onclick: close }, tr('Close'))),
       body));
   document.addEventListener('keydown', onKey, true);
   document.body.append(overlay);
 
   const money = (p) => (p.value == null ? '—'
-    : new Intl.NumberFormat('en', { style: 'currency', currency: p.currency }).format(p.value));
+    : new Intl.NumberFormat(i18n.lang, { style: 'currency', currency: p.currency }).format(p.value));
   window.tcg.getPrices({ id: card.id, tcg: tcg.id, localId: card.local_id }).then((versions) => {
     if (!versions.length) {
-      setChildren(body, el('p', { class: 'muted' }, 'There are no prices for this card yet.'));
+      setChildren(body, el('p', { class: 'muted' }, tr('There are no prices for this card yet.')));
       return;
     }
+    // Los títulos de versión y los nombres de precio (Market, Low…) vienen del proceso principal en inglés.
     setChildren(body, el('div', { class: 'price-list' }, versions.map((v) =>
       el('div', { class: 'price-version' + (v.current ? ' current' : '') },
         v.image ? el('img', { src: cardImage(v.image), alt: '', loading: 'lazy' }) : null,
         el('div', { class: 'price-info' },
-          el('div', { class: 'price-title' }, v.title),
+          el('div', { class: 'price-title' }, v.image ? v.title : tr(v.title)),
           el('div', { class: 'price-sub' }, [v.subtitle, v.source].filter(Boolean).join(' · ')),
           el('div', { class: 'price-values' }, v.prices.map((p, i) =>
-            el('div', { class: 'price-value' + (i === 0 ? ' main' : '') }, p.label, el('strong', {}, money(p))))))))),
-      versions.some((v) => v.current) ? el('p', { class: 'muted hint' }, 'The highlighted one is this card.') : null);
+            el('div', { class: 'price-value' + (i === 0 ? ' main' : '') }, tr(p.label), el('strong', {}, money(p))))))))),
+      versions.some((v) => v.current) ? el('p', { class: 'muted hint' }, tr('The highlighted one is this card.')) : null);
   }).catch((err) => {
-    setChildren(body, el('p', { class: 'error' }, `Could not load the prices: ${err.message || err}`));
+    setChildren(body, el('p', { class: 'error' }, tr('Could not load the prices: {error}', { error: err.message || err })));
   });
 }
 
@@ -1981,13 +2080,13 @@ function askQuantity(card, current = card.quantity, variantLabel = null) {
     };
     const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(null); } },
       el('div', { class: 'dialog', role: 'dialog' },
-        el('h3', {}, 'Add several'),
+        el('h3', {}, tr('Add several')),
         el('p', { class: 'muted' }, `#${card.local_id} ${card.name}${variantLabel ? ` (${variantLabel})` : ''}`
-          + ` · you currently have ${current}`),
-        el('label', { class: 'dialog-label' }, 'How many do you want to add?', input),
+          + ` · ${tr('you currently have {n}', { n: current })}`),
+        el('label', { class: 'dialog-label' }, tr('How many do you want to add?'), input),
         el('div', { class: 'dialog-actions' },
-          el('button', { class: 'chip', onclick: () => close(null) }, 'Cancel'),
-          el('button', { class: 'btn', onclick: accept }, 'Add'))));
+          el('button', { class: 'chip', onclick: () => close(null) }, tr('Cancel')),
+          el('button', { class: 'btn', onclick: accept }, tr('Add')))));
     document.addEventListener('keydown', onKey, true);
     document.body.append(overlay);
     input.focus();
@@ -2044,7 +2143,7 @@ async function showPokedex(tcg, opts = {}) {
   setChrome(`${tcg.name} › Pokédex`, tcg);
   setChildren(view, el('div', { class: 'loading' },
     el('div', { class: 'spinner' }),
-    el('p', {}, 'Loading the Pokédex… (the first time it downloads every Full Art card, this takes a few seconds)')));
+    el('p', {}, tr('Loading the Pokédex… (the first time it downloads every Full Art card, this takes a few seconds)'))));
 
   let dex, dexNotes;
   try {
@@ -2054,9 +2153,9 @@ async function showPokedex(tcg, opts = {}) {
     dexNotes = { id: 'pokedex', name: 'Pokédex', notes };
   } catch (err) {
     setChildren(view,
-      el('p', { class: 'error' }, 'Could not download the Pokédex. Are you connected to the internet?'),
+      el('p', { class: 'error' }, tr('Could not download the Pokédex. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showPokedex(tcg, opts) }, 'Retry'));
+      el('button', { class: 'btn', onclick: () => showPokedex(tcg, opts) }, tr('Retry')));
     return;
   }
 
@@ -2073,7 +2172,7 @@ async function showPokedex(tcg, opts = {}) {
       return p.name_en.toLowerCase().includes(q) || String(p.dex_id) === q;
     });
     setChildren(grid, ...visible.map((p) => dexTile(tcg, p)));
-    if (!visible.length) grid.append(el('p', { class: 'muted' }, 'No Pokémon match.'));
+    if (!visible.length) grid.append(el('p', { class: 'muted' }, tr('No Pokémon match.')));
   };
 
   const filterBtn = (key, label) =>
@@ -2089,7 +2188,7 @@ async function showPokedex(tcg, opts = {}) {
     }, label);
 
   const search = el('input', {
-    class: 'search', type: 'search', placeholder: 'Search by name or number…', value: dexState.search,
+    class: 'search', type: 'search', placeholder: tr('Search by name or number…'), value: dexState.search,
     oninput: (e) => { dexState.search = e.target.value; render(); },
   });
 
@@ -2097,20 +2196,20 @@ async function showPokedex(tcg, opts = {}) {
     el('div', { class: 'collection-header' },
       el('div', {},
         el('h1', { class: 'title' }, 'Pokédex'),
-        el('div', { class: 'counter' }, `${owned.length} / ${withCards.length} Pokémon collected`),
+        el('div', { class: 'counter' }, tr('{owned} / {total} Pokémon collected', { owned: owned.length, total: withCards.length })),
         el('div', { class: 'progress wide' },
           el('div', { class: 'progress-fill', style: `width:${withCards.length ? (owned.length / withCards.length) * 100 : 0}%` }))),
       el('div', { class: 'toolbar' },
         el('div', { class: 'toolbar-row' },
           notesButton(dexNotes),
           el('button', { class: 'btn', onclick: () => { dexState.scroll = 0; showPokedex(tcg, { refresh: true }); } },
-            'Update from API')),
+            tr('Update from API'))),
         el('div', { class: 'toolbar-row' },
           search,
           el('div', { class: 'chips' },
-            filterBtn('all', 'All'), filterBtn('owned', 'Collected'), filterBtn('missing', 'Missing'))))),
+            filterBtn('all', tr('All')), filterBtn('owned', tr('Collected')), filterBtn('missing', tr('Missing')))))),
     el('p', { class: 'muted hint' },
-      'Greyed out: Pokémon without any Full Art card (those with promos can still be opened). Click a Pokémon to see its cards and mark the ones you own.'),
+      tr('Greyed out: Pokémon without any Full Art card (those with promos can still be opened). Click a Pokémon to see its cards and mark the ones you own.')),
     grid
   );
   render();
@@ -2124,8 +2223,8 @@ function dexTile(tcg, p) {
   return el('button', {
     class: 'dex-tile' + (enabled ? '' : ' disabled') + (!p.fullart_count && !owned ? ' no-fullart' : '') + (owned ? ' owned' : ''),
     disabled: !enabled,
-    title: !enabled ? `${name}: no Full Art cards`
-      : `${name}: ${p.fullart_count} Full Art · ${p.promo_count} promos · you own ${p.owned_count}`,
+    title: !enabled ? tr('{name}: no Full Art cards', { name })
+      : tr('{name}: {fullArt} Full Art · {promos} promos · you own {owned}', { name, fullArt: p.fullart_count, promos: p.promo_count, owned: p.owned_count }),
     onclick: () => { dexState.scroll = view.scrollTop; navigate(showPokemon, tcg, p.dex_id); },
   },
     el('div', { class: 'dex-img-wrap' + (p.best_image ? ' is-card' : '') },
@@ -2138,29 +2237,29 @@ function dexTile(tcg, p) {
 
 function dexCountText(p) {
   const fa = p.owned_count - p.owned_promo_count;
-  const promos = p.owned_promo_count ? ` + ${p.owned_promo_count} promo${p.owned_promo_count > 1 ? 's' : ''}` : '';
-  return p.fullart_count ? `${fa} / ${p.fullart_count}${promos}` : (promos ? promos.slice(3) : 'Promos only');
+  const promos = p.owned_promo_count ? ` + ${tr(p.owned_promo_count > 1 ? '{n} promos' : '{n} promo', { n: p.owned_promo_count })}` : '';
+  return p.fullart_count ? `${fa} / ${p.fullart_count}${promos}` : (promos ? promos.slice(3) : tr('Promos only'));
 }
 
 function formatPrice(card) {
-  if (card.price == null) return card.price_fetched_at ? 'No price' : '';
-  return new Intl.NumberFormat('en', { style: 'currency', currency: card.currency || 'USD' }).format(card.price);
+  if (card.price == null) return card.price_fetched_at ? tr('No price') : '';
+  return new Intl.NumberFormat(i18n.lang, { style: 'currency', currency: card.currency || 'USD' }).format(card.price);
 }
 
 async function showPokemon(tcg, dexId) {
   setChrome(`${tcg.name} › Pokédex › …`, tcg);
   view.scrollTop = 0;
   setChildren(view, el('div', { class: 'loading' },
-    el('div', { class: 'spinner' }), el('p', {}, 'Loading cards and prices…')));
+    el('div', { class: 'spinner' }), el('p', {}, tr('Loading cards and prices…'))));
 
   let data;
   try {
     data = await window.tcg.getPokemon(dexId);
   } catch (err) {
     setChildren(view,
-      el('p', { class: 'error' }, 'Could not load the cards.'),
+      el('p', { class: 'error' }, tr('Could not load the cards.')),
       el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showPokemon(tcg, dexId) }, 'Retry'));
+      el('button', { class: 'btn', onclick: () => showPokemon(tcg, dexId) }, tr('Retry')));
     return;
   }
   const { pokemon, cards } = data;
@@ -2181,11 +2280,11 @@ async function showPokemon(tcg, dexId) {
   }, [`${card.set_name || card.set_id} · #${card.local_id}`, card.rarity || '', formatPrice(card)]));
   const render = () => {
     const ownedOf = (list) => list.filter((c) => c.quantity > 0).length;
-    counter.textContent = `${ownedOf(fullArts)} / ${fullArts.length} Full Art cards collected`
-      + (promos.length ? ` · ${ownedOf(promos)} / ${promos.length} promos` : '');
+    counter.textContent = tr('{owned} / {total} Full Art cards collected', { owned: ownedOf(fullArts), total: fullArts.length })
+      + (promos.length ? ` · ${tr('{owned} / {total} promos', { owned: ownedOf(promos), total: promos.length })}` : '');
     promoCounter.textContent = ` (${ownedOf(promos)} / ${promos.length})`;
     setChildren(grid, ...tiles(fullArts));
-    if (!fullArts.length) grid.append(el('p', { class: 'muted' }, 'This Pokémon has no Full Art cards.'));
+    if (!fullArts.length) grid.append(el('p', { class: 'muted' }, tr('This Pokémon has no Full Art cards.')));
     setChildren(promoGrid, ...tiles(promos));
   };
 
@@ -2198,12 +2297,12 @@ async function showPokemon(tcg, dexId) {
           el('h1', { class: 'title' }, name),
           counter))),
     el('p', { class: 'muted hint' },
-      'Mark the cards you own. The Pokédex will show the most expensive one you own. Hover over a card and use ⤢ to view it larger.'),
+      tr('Mark the cards you own. The Pokédex will show the most expensive one you own. Hover over a card and use ⤢ to view it larger.')),
     el('h2', { class: 'section-title' }, 'Full Art'),
     grid,
-    promos.length ? el('h2', { class: 'section-title promos-title' }, 'Promos', promoCounter) : null,
+    promos.length ? el('h2', { class: 'section-title promos-title' }, tr('Promos'), promoCounter) : null,
     promos.length ? el('p', { class: 'muted hint' },
-      'All promos for this Pokémon: the API does not say which ones are Full Art, so all of them are shown.') : null,
+      tr('All promos for this Pokémon: the API does not say which ones are Full Art, so all of them are shown.')) : null,
     promos.length ? promoGrid : null
   );
   render();
@@ -2239,16 +2338,5 @@ document.addEventListener('mouseover', (e) => {
   if (target && !target.contains(e.relatedTarget)) sfx.play('hover');
 });
 
-const soundBtn = document.getElementById('sound-toggle');
-const renderSoundBtn = () => {
-  soundBtn.textContent = sfx.muted ? '🔇' : '🔊';
-  soundBtn.title = sfx.muted ? 'Turn sounds on' : 'Turn sounds off';
-};
-soundBtn.addEventListener('click', () => {
-  sfx.setMuted(!sfx.muted);
-  renderSoundBtn();
-  sfx.play('add');
-});
-renderSoundBtn();
-
+renderStaticTexts();
 navigate(showHome);
