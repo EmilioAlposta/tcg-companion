@@ -1,8 +1,22 @@
 // Navegación simple entre vistas: home -> tcg -> colección
+// Menú principal: art, el arte de la franja (encuadre en artFrame: tamaño y posición para que se vea la cara);
+// cover, la carta grande de la derecha. image es el dorso de la carta; logo, el emblema (Mis mazos, Settings).
 const TCGS = [
-  { id: 'magic', name: 'Magic: The Gathering', image: '../assets/tcg/magic.svg', enabled: true, example: 'Lightning Bolt', source: 'Scryfall' },
-  { id: 'pokemon', name: 'Pokémon', image: '../assets/tcg/pokemon.svg', enabled: true, example: 'Charizard', source: 'TCGdex' },
-  { id: 'onepiece', name: 'One Piece', image: '../assets/tcg/onepiece.svg', enabled: true, example: 'Luffy', source: 'OPTCG API' },
+  { id: 'magic', name: 'Magic: The Gathering', short: 'Magic', image: '../assets/tcg/magic.svg', logo: '../assets/tcg/magic-logo.svg', enabled: true, example: 'Lightning Bolt', source: 'Scryfall',
+    color: '#c46a2b',
+    art: 'https://cards.scryfall.io/art_crop/front/c/8/c8817585-0d32-4d56-9142-0d29512e86a9.jpg?1783930196',
+    artFrame: 'center 12% / cover',
+    cover: 'https://cards.scryfall.io/art_crop/front/c/5/c5408607-af8f-48fe-bc40-32828d1976de.jpg?1783913282' },
+  { id: 'pokemon', name: 'Pokémon', short: 'Pokémon', image: '../assets/tcg/pokemon.svg', logo: '../assets/tcg/pokemon-logo.svg', enabled: true, example: 'Charizard', source: 'TCGdex',
+    color: '#2f6fe0',
+    art: 'https://assets.tcgdex.net/en/swsh/swsh12.5/160/high.webp',
+    artFrame: '0% 47% / 110% auto',
+    cover: 'https://assets.tcgdex.net/en/swsh/swsh3/20/high.webp' },
+  { id: 'onepiece', name: 'One Piece', short: 'One Piece', image: '../assets/tcg/onepiece.svg', logo: '../assets/tcg/onepiece-logo.svg', enabled: true, example: 'Luffy', source: 'OPTCG API',
+    color: '#6b3fd1',
+    art: 'https://optcgapi.com/media/static/Card_Images/OP05-119_p1.jpg',
+    artFrame: '50% 26% / 110% auto',
+    cover: 'https://optcgapi.com/media/static/Card_Images/OP05-119.jpg' },
 ];
 
 const view = document.getElementById('view');
@@ -84,42 +98,159 @@ function cardImage(url, quality = 'low') {
   return /\.(jpe?g|png|webp)$/i.test(url) ? url : `${url}/${quality}.webp`;
 }
 
-// ---------- Vista 1: elegir TCG ----------
+// ---------- Vista 1: menú principal ----------
+// Franjas diagonales (una por TCG, Mis mazos y Settings) estilo menú de videojuego: la elegida se despliega
+// con su arte y a la derecha se ve una vista previa. Se elige con el ratón o con ↑ ↓ y Enter.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function gearIcon(cls) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', cls);
+  for (const [tag, attrs] of [['circle', { cx: 12, cy: 12, r: 3 }], ['path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z' }]]) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    svg.append(node);
+  }
+  return svg;
+}
+
+// Fondo con imagen y encuadre ("posición / tamaño"); bajo la imagen, el color del TCG por si no carga.
+const artStyle = (url, frame = 'center / cover', color = '#1d3352') =>
+  `background: url("${url}") ${frame} no-repeat, ${color}`;
+
+let homeSelect = null; // (delta) => mueve la selección; null si el menú principal no está en pantalla
+
 function showHome() {
   setChrome(tr('Choose your TCG'));
-  const buildText = tr('Build decks for {tcgs}', { tcgs: listNames(visibleTcgs().map((t) => t.name)) });
-  const decksEntry = el('button', { class: 'decks-entry', onclick: () => navigate(showDecks) },
-    el('div', { class: 'decks-entry-covers' }),
-    el('div', { class: 'decks-entry-text' },
-      el('div', { class: 'collection-name' }, tr('My decks')),
-      el('div', { class: 'collection-meta' }, buildText)),
-    el('span', { class: 'decks-entry-go' }, tr('Open')));
-  const settingsEntry = el('button', { class: 'decks-entry settings-entry', onclick: () => navigate(showSettings) },
-    el('div', { class: 'settings-entry-icon' }, '⚙'),
-    el('div', { class: 'decks-entry-text' },
-      el('div', { class: 'collection-name' }, tr('Settings')),
-      el('div', { class: 'collection-meta' }, tr('Sound, language and the TCGs you collect'))),
-    el('span', { class: 'decks-entry-go' }, tr('Open')));
-  setChildren(view,
-    el('h1', { class: 'title' }, tr('Which collection do you want to manage?')),
-    el('div', { class: 'tcg-grid' },
-      visibleTcgs().map((t) =>
-        el('button', { class: 'tcg-tile', onclick: () => navigate(showTcg, t) },
-          el('img', { src: t.image, alt: t.name }),
-          el('span', { class: 'tcg-name' }, t.name))
-      )),
-    el('div', { class: 'home-decks' }, decksEntry, settingsEntry)
-  );
-  // El resumen de los mazos llega después: la pantalla se pinta sin esperar a la base de datos.
-  window.tcg.listDecks().then((decks) => {
-    const covers = decks.map((d) => deckCover(d, d.cards)).filter((c) => c?.image_url).slice(0, 3);
-    setChildren(decksEntry.querySelector('.decks-entry-covers'),
+  const count = (n, one, many) => tr(n === 1 ? one : many, { n: n.toLocaleString(i18n.lang) });
+  const tcgSub = (s) => (s?.cards ? `${count(s.cards, '{n} card', '{n} cards')} · ${count(s.sets, '{n} set', '{n} sets')}` : tr('No cards yet'));
+  const buildText = tr('Build decks for {tcgs}', { tcgs: listNames(visibleTcgs().map((t) => t.short)) });
+
+  // Vista previa de la derecha de cada franja; los datos de la base de datos llegan después y la rellenan.
+  const items = [
+    ...visibleTcgs().map((t) => ({
+      kind: 'tcg', color: t.color, title: t.short, sub: '', open: () => navigate(showTcg, t),
+      bg: () => el('div', { class: 'home-bg', style: artStyle(t.art, t.artFrame, t.color) }),
+      preview: () => {
+        const card = el('div', { class: 'home-pv-card', style: artStyle(t.cover, 'center / cover', t.color) });
+        // Sin conexión no carga el arte: se queda el dorso de siempre.
+        const probe = new Image();
+        probe.onerror = () => { card.style.cssText = artStyle(t.image, 'center / cover', t.color); };
+        probe.src = t.cover;
+        return card;
+      },
+      tcg: t,
+    })),
+    { kind: 'decks', color: '#d8262f', title: tr('My decks'), sub: buildText, open: () => navigate(showDecks), small: true },
+    { kind: 'settings', color: '#1d3352', title: tr('Settings'), sub: tr('Sound, language and the TCGs you collect'), open: () => navigate(showSettings), small: true },
+  ];
+  let decks = [];
+  let stats = null;
+
+  const deckCovers = () => decks.map((d) => deckCover(d, d.cards)).filter((c) => c?.image_url).slice(0, 3);
+  const deckTcgs = () => [...new Set(decks.map((d) => tcgById(d.tcg).short))].join(', ');
+  const icon = (item) => {
+    if (item.kind === 'settings') return gearIcon('home-gear');
+    if (item.kind !== 'decks') return null;
+    const covers = deckCovers();
+    return el('span', { class: 'home-minifan' + (covers.length ? '' : ' empty') },
       covers.map((c) => el('img', { src: cardImage(c.image_url), alt: '' })));
-    decksEntry.querySelector('.collection-meta').textContent = decks.length
-      ? `${tr(decks.length === 1 ? '{n} deck' : '{n} decks', { n: decks.length })} · ${[...new Set(decks.map((d) => tcgById(d.tcg).name))].join(', ')}`
-      : buildText;
+  };
+  const background = (item) => {
+    if (item.bg) return item.bg();
+    if (item.kind !== 'decks' || !deckCovers().length) return null;
+    return el('div', { class: 'home-bg collage' },
+      deckCovers().map((c) => el('div', { style: artStyle(cardImage(c.image_url), 'center 8% / cover') })));
+  };
+
+  const preview = (item) => {
+    if (item.kind === 'tcg') return item.preview();
+    if (item.kind === 'decks') {
+      const covers = deckCovers();
+      if (!decks.length) {
+        return el('div', { class: 'home-pv-decks' },
+          el('div', { class: 'home-pv-fan' }, el('div', { class: 'home-pv-deck empty' }, '+')),
+          el('div', { class: 'home-pv-more' }, tr('No decks yet')));
+      }
+      return el('div', { class: 'home-pv-decks' },
+        el('div', { class: 'home-pv-fan n' + covers.length },
+          covers.map((c) => el('div', { class: 'home-pv-deck', style: artStyle(cardImage(c.image_url)) }))),
+        el('div', { class: 'home-pv-list' },
+          decks.slice(0, 3).map((d) => el('div', {},
+            el('span', { class: 'home-pv-name' }, d.name),
+            el('small', {}, `${tcgById(d.tcg).short} · ${fmtName(deckFormat(d))}`)))),
+        decks.length > 3 ? el('div', { class: 'home-pv-more' }, count(decks.length - 3, '+{n} more deck', '+{n} more decks')) : null);
+    }
+    const row = (label, value) => el('div', { class: 'home-pv-row' }, el('span', {}, label), value);
+    return el('div', { class: 'home-pv-settings' },
+      el('h3', { class: 'home-display' }, gearIcon('home-gear'), tr('Settings')),
+      row(tr('Sound effects'), el('span', { class: 'home-pv-toggle' + (sfx.muted ? '' : ' on') })),
+      row(tr('Language'), el('b', {}, i18n.lang === 'es' ? 'Español' : 'English')),
+      row(tr('TCGs'), el('div', { class: 'home-pv-tcgs' },
+        TCGS.filter((t) => t.enabled).map((t) =>
+          el('b', { class: hiddenTcgs.has(t.id) ? 'off' : '', style: `--c: ${t.color}` }, t.short)))),
+      row(tr('Cards downloaded'), el('b', {}, stats ? stats.catalog.toLocaleString(i18n.lang) : '…')),
+      el('div', { class: 'home-pv-foot' }, tr('Open it to change any option')));
+  };
+
+  const list = el('div', { class: 'home-list' });
+  const pv = el('div', { class: 'home-preview' });
+  let selected = 0;
+  let swapTimer = null;
+  const renderItem = (item, i) => el('button', {
+    class: 'home-item' + (item.small ? ' small' : '') + (i === selected ? ' sel' : ''),
+    style: `--c: ${item.color}; animation-delay: ${i * 0.05}s`,
+    onmouseenter: () => select(i),
+    onclick: item.open,
+  },
+    background(item), el('div', { class: 'home-glow' }),
+    el('span', { class: 'home-title home-display' }, icon(item), item.title),
+    el('span', { class: 'home-sub' }, item.sub));
+  const renderList = () => setChildren(list, items.map(renderItem));
+  // La vista previa sale con una pequeña animación; al cambiar de franja muy rápido solo cuenta la última.
+  const renderPreview = (animate) => {
+    clearTimeout(swapTimer);
+    if (!animate) return setChildren(pv, preview(items[selected]));
+    pv.classList.add('swap');
+    swapTimer = setTimeout(() => { setChildren(pv, preview(items[selected])); pv.classList.remove('swap'); }, 180);
+  };
+  function select(i) {
+    i = (i + items.length) % items.length;
+    if (i === selected) return;
+    selected = i;
+    list.querySelectorAll('.home-item').forEach((b, j) => b.classList.toggle('sel', j === i));
+    renderPreview(true);
+  }
+  homeSelect = (delta) => {
+    if (delta) { select(selected + delta); sfx.play('hover'); } else items[selected].open();
+  };
+
+  renderList();
+  renderPreview(false);
+  setChildren(view, el('div', { class: 'home' }, list, pv));
+
+  // Los datos llegan después: la pantalla se pinta sin esperar a la base de datos.
+  Promise.all([window.tcg.homeStats(), window.tcg.listDecks()]).then(([s, d]) => {
+    if (!view.contains(list)) return;
+    stats = s;
+    decks = d;
+    for (const item of items) {
+      if (item.kind === 'tcg') item.sub = tcgSub(stats.tcgs[item.tcg.id]);
+      if (item.kind === 'decks' && decks.length) item.sub = `${count(decks.length, '{n} deck', '{n} decks')} · ${deckTcgs()}`;
+    }
+    // Se repinta sin la animación de entrada: las franjas ya estaban en pantalla.
+    list.classList.add('ready');
+    renderList();
+    if (items[selected].kind !== 'tcg') renderPreview(false);
   }).catch(() => {});
 }
+
+// ↑ ↓ y Enter en el menú principal (con otro diálogo o un campo de texto activo no se hace nada).
+document.addEventListener('keydown', (e) => {
+  if (!homeSelect || !view.querySelector('.home') || e.target.closest?.('input, textarea, select')) return;
+  const delta = { ArrowUp: -1, ArrowDown: 1 }[e.key];
+  if (delta) { e.preventDefault(); homeSelect(delta); } else if (e.key === 'Enter' && !e.target.closest?.('button')) homeSelect(0);
+});
 
 // ---------- Settings ----------
 function showSettings() {
@@ -138,7 +269,7 @@ function showSettings() {
     // Siempre queda al menos un TCG a la vista.
     const last = shown && visibleTcgs().length === 1;
     return el('div', { class: 'settings-tcg' + (shown ? '' : ' off') },
-      el('img', { src: t.image, alt: '' }),
+      el('img', { src: t.logo, alt: '' }),
       el('span', { class: 'settings-tcg-name' }, t.name),
       last ? el('span', { class: 'muted settings-tcg-note' }, tr('At least one TCG stays visible')) : null,
       chips([[true, tr('Show')], [false, tr('Hide')]], shown, (v) => {
@@ -148,7 +279,7 @@ function showSettings() {
       }));
   });
 
-  setChildren(view,
+  setChildren(view, el('div', { class: 'settings-page' },
     el('h1', { class: 'title' }, tr('Settings')),
     el('section', { class: 'settings-section' },
       el('h2', { class: 'section-title' }, tr('General')),
@@ -167,7 +298,7 @@ function showSettings() {
     el('section', { class: 'settings-section' },
       el('h2', { class: 'section-title' }, tr('TCGs')),
       el('p', { class: 'muted hint' }, tr('Hide the TCGs you do not collect: they disappear from the main menu. Your cards and decks are kept.')),
-      el('div', { class: 'settings-tcgs' }, tcgRows)));
+      el('div', { class: 'settings-tcgs' }, tcgRows))));
 }
 
 const tcgById = (id) => TCGS.find((t) => t.id === id) || TCGS[0];
@@ -1368,7 +1499,7 @@ function deckTile(deck) {
   const image = cover?.image_url ? cardImage(cover.image_url) : null;
   return el('button', { class: 'deck-tile', onclick: () => navigate(showDeck, deck.id) },
     el('div', { class: 'deck-tile-bg' }, image ? el('img', { src: image, alt: '', loading: 'lazy' }) : null),
-    el('img', { class: 'deck-tcg-badge', src: tcg.image, alt: tcg.name, title: tcg.name }),
+    el('img', { class: 'deck-tcg-badge', src: tcg.logo, alt: tcg.name, title: tcg.name }),
     el('div', { class: 'deck-tile-cover' },
       image ? el('img', { src: image, alt: cover.name, loading: 'lazy' }) : el('div', { class: 'deck-empty-cover' }, tr('No cards yet'))),
     el('div', { class: 'deck-tile-info' },
@@ -2332,7 +2463,7 @@ document.addEventListener('click', (e) => {
 });
 
 // "Tic" suave al pasar el ratón por una carta o una casilla de la cuadrícula (solo al entrar, no al moverse dentro).
-const HOVER_TARGETS = '.card, .tcg-tile:not(.disabled), .collection-item, .set-tile, .dex-tile:not(.disabled), .deck-tile, .decks-entry';
+const HOVER_TARGETS = '.card, .home-item, .collection-item, .set-tile, .dex-tile:not(.disabled), .deck-tile';
 document.addEventListener('mouseover', (e) => {
   const target = e.target.closest?.(HOVER_TARGETS);
   if (target && !target.contains(e.relatedTarget)) sfx.play('hover');

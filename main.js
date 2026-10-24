@@ -89,6 +89,7 @@ async function searchPokemonCards(name, keep = () => true) {
 
 function registerIpc() {
   ipcMain.handle('db:path', () => db.filePath);
+  ipcMain.handle('home:stats', () => db.getHomeStats());
   ipcMain.handle('collections:list', async (_e, tcg, { refreshSets = false } = {}) => {
     // La lista de sets se descarga la primera vez; sin conexión seguimos con lo que haya.
     if (tcg === 'pokemon' && (refreshSets || !db.hasSets())) {

@@ -207,6 +207,25 @@ class Database {
     );
   }
 
+  // Resumen para el menú principal: por TCG, cartas distintas que tienes, copias y sets con alguna carta tuya;
+  // además, cuántas cartas hay descargadas en total. Una carta de una colección custom cuenta una sola vez.
+  getHomeStats() {
+    const tcgs = {};
+    for (const r of this.all(
+      `SELECT tcg, COUNT(*) AS cards, SUM(quantity) AS copies FROM (
+         SELECT DISTINCT o.card_id, o.quantity, c.tcg
+           FROM owned_cards o JOIN cards k ON k.id = o.card_id JOIN collections c ON c.id = k.collection_id)
+        GROUP BY tcg`
+    )) tcgs[r.tcg] = { cards: r.cards, copies: r.copies, sets: 0 };
+    for (const r of this.all(
+      `SELECT c.tcg, COUNT(DISTINCT c.id) AS sets
+         FROM collections c JOIN cards k ON k.collection_id = c.id JOIN owned_cards o ON o.card_id = k.id
+        WHERE c.custom = 0 GROUP BY c.tcg`
+    )) if (tcgs[r.tcg]) tcgs[r.tcg].sets = r.sets;
+    const catalog = this.get('SELECT COUNT(DISTINCT id) AS n FROM cards').n;
+    return { tcgs, catalog };
+  }
+
   getCollection(id) {
     return this.get(
       `SELECT c.*, COALESCE(n.notes, '') AS notes

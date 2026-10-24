@@ -28,6 +28,17 @@
 | Magic: The Gathering | ✅ Disponible |
 | One Piece | ✅ Disponible |
 
+### Menú principal
+
+Un menú de franjas diagonales al estilo de los videojuegos de lucha, con una franja por TCG, otra para **Mis mazos** y otra para **Configuración**:
+
+- La franja elegida se despliega con el arte de su TCG y, a la derecha, aparece una vista previa.
+- Cada TCG muestra **cuántas cartas distintas tienes y en cuántos sets**.
+- **Mis mazos** muestra en abanico las portadas de tus últimos mazos, con su TCG y formato.
+- **Configuración** muestra una ficha con tus opciones actuales: sonido, idioma, TCG visibles y cartas descargadas.
+- Se elige con el ratón o con las flechas **↑ ↓** y **Enter**.
+- Sin conexión, las franjas se ven con el color de cada TCG y la vista previa usa el dorso de la carta.
+
 ### Pokémon
 
 - **Pokédex de Full Arts.** Están los 1025 Pokémon de la Pokédex nacional.
@@ -86,9 +97,9 @@ Desde **Settings**, en el menú principal:
 
 ## Capturas
 
-| Elegir TCG | Colecciones de Pokémon |
+| Menú principal | Colecciones de Pokémon |
 |---|---|
-| ![Inicio](docs/screenshots/home.webp) | ![Colecciones de Pokémon](docs/screenshots/pokemon-menu.webp) |
+| ![Menú principal](docs/screenshots/home.webp) | ![Colecciones de Pokémon](docs/screenshots/pokemon-menu.webp) |
 
 | Cartas Full Art de un Pokémon | Set 30th Celebration - Pikachus |
 |---|---|
@@ -143,7 +154,7 @@ Genera un instalador `.exe` en `dist/`.
 │   ├── onepiece-api.js     Cliente de OPTCG API (One Piece)
 │   ├── magic-api.js        Cliente de Scryfall (Magic: The Gathering)
 │   └── pokedex-sync.js     Sincronización de la Pokédex y precios
-├── assets/                 Icono de la app e imágenes de cada TCG
+├── assets/                 Icono de la app, dorso y logo de cada TCG
 ├── scripts/make-icons.js   Genera icon.png / icon.ico desde el logo
 └── docs/                   Logo y capturas del README
 ```
