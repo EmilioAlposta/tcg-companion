@@ -72,6 +72,37 @@ const hiddenTcgs = (() => {
 })();
 const visibleTcgs = () => TCGS.filter((t) => t.enabled && !hiddenTcgs.has(t.id));
 
+// ---------- Ajustes de cada TCG (Settings) ----------
+// Formatos de mazo desactivados (no se ofrecen al crear un mazo) y opciones de la Pokédex: si se ve y qué tipos de
+// carta cuentan (DEX_KINDS). Sin nada guardado: todos los formatos, Pokédex visible con Full Arts y promos.
+// help: qué cartas entran en cada tipo (se explica en Settings).
+const DEX_KINDS = [
+  { id: 'fullart', label: 'Full Art', help: 'Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, Secret Rare, Shiny Ultra Rare…' },
+  { id: 'promo', label: 'Promos', help: 'Promotional cards from boxes, events and magazines (Black Star Promos).' },
+  { id: 'other', label: 'Regular cards', help: 'The rest of the cards in the sets: common, uncommon, rare, holo rare, V, VMAX, double rare…' },
+];
+const tcgPrefs = (() => {
+  const STORAGE_KEY = 'tcg-prefs';
+  let prefs = {};
+  try { prefs = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch { /* sin almacenamiento: por defecto */ }
+  const save = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs)); } catch { /* no se recuerda, da igual */ } };
+  const offFormats = (tcg) => prefs.offFormats?.[tcg] || [];
+  return {
+    formatOn: (tcg, id) => !offFormats(tcg).includes(id),
+    setFormat(tcg, id, on) {
+      prefs.offFormats = { ...prefs.offFormats, [tcg]: on ? offFormats(tcg).filter((x) => x !== id) : [...new Set([...offFormats(tcg), id])] };
+      save();
+    },
+    get pokedexShown() { return prefs.pokedexHidden !== true; },
+    setPokedexShown(shown) { prefs.pokedexHidden = !shown; save(); },
+    get pokedexKinds() {
+      const kinds = DEX_KINDS.map((k) => k.id).filter((k) => prefs.pokedexKinds?.includes(k));
+      return kinds.length ? kinds : ['fullart', 'promo'];
+    },
+    setPokedexKinds(kinds) { prefs.pokedexKinds = kinds; save(); },
+  };
+})();
+
 // ---------- Wishlist ----------
 // Ids de las cartas de la wishlist (de todos los TCG), para que el menú ⋮ sepa al momento si ofrece añadir o quitar.
 // Al cambiar se lanza el evento "wishlist-change" en document (la vista de la wishlist se vuelve a pintar).
@@ -287,11 +318,25 @@ function showSettings() {
   const chips = (options, active, onPick) => el('div', { class: 'chips' },
     options.map(([value, label]) => optionChip(label, value === active, () => onPick(value))));
 
+  // Opciones que se pueden activar varias a la vez (siempre queda al menos una activa).
+  const toggles = (options, isOn, onToggle) => {
+    const active = options.filter(([value]) => isOn(value)).length;
+    return el('div', { class: 'chips' }, options.map(([value, label]) => {
+      const on = isOn(value);
+      return optionChip(label, on, () => {
+        if (on && active === 1) return;
+        onToggle(value, !on);
+        showSettings();
+      });
+    }));
+  };
+
+  // Un bloque por TCG: mostrarlo u ocultarlo y, si se muestra, sus opciones (formatos de mazo, Pokédex…).
   const tcgRows = TCGS.filter((t) => t.enabled).map((t) => {
     const shown = !hiddenTcgs.has(t.id);
     // Siempre queda al menos un TCG a la vista.
     const last = shown && visibleTcgs().length === 1;
-    return el('div', { class: 'settings-tcg' + (shown ? '' : ' off') },
+    const head = el('div', { class: 'settings-tcg' + (shown ? '' : ' off') },
       el('img', { src: t.logo, alt: '' }),
       el('span', { class: 'settings-tcg-name' }, t.name),
       last ? el('span', { class: 'muted settings-tcg-note' }, tr('At least one TCG stays visible')) : null,
@@ -300,6 +345,34 @@ function showSettings() {
         hiddenTcgs.set(t.id, !v);
         showSettings();
       }));
+    if (!shown) return el('div', { class: 'settings-tcg-block off', style: `--c: ${t.color}` }, head);
+
+    const options = [
+      el('div', { class: 'settings-row stacked' },
+        el('div', { class: 'settings-text' },
+          el('div', { class: 'settings-title' }, tr('Deck formats')),
+          el('div', { class: 'collection-meta' }, tr('Only the active formats are offered when you create a deck. Decks you already have keep their format.'))),
+        toggles(DECK_FORMATS[t.id].map((f) => [f.id, fmtName(f)]), (id) => tcgPrefs.formatOn(t.id, id),
+          (id, on) => tcgPrefs.setFormat(t.id, id, on))),
+    ];
+    if (t.id === 'pokemon') {
+      options.push(row(tr('Pokédex'), tr('Show the Pokédex next to your collections.'),
+        chips([[true, tr('Show')], [false, tr('Hide')]], tcgPrefs.pokedexShown, (v) => {
+          tcgPrefs.setPokedexShown(v);
+          showSettings();
+        })));
+      if (tcgPrefs.pokedexShown) {
+        options.push(el('div', { class: 'settings-row stacked' },
+          el('div', { class: 'settings-text' },
+            el('div', { class: 'settings-title' }, tr('Cards to include in your Pokédex collection')),
+            el('div', { class: 'collection-meta' }, tr('Which cards of each Pokémon count. Turn on all three to count any card.')),
+            el('ul', { class: 'collection-meta settings-list' },
+              DEX_KINDS.map((k) => el('li', {}, el('b', {}, tr(k.label)), `: ${tr(k.help)}`)))),
+          toggles(DEX_KINDS.map((k) => [k.id, tr(k.label)]), (k) => tcgPrefs.pokedexKinds.includes(k),
+            (k, on) => tcgPrefs.setPokedexKinds(on ? [...tcgPrefs.pokedexKinds, k] : tcgPrefs.pokedexKinds.filter((x) => x !== k)))));
+      }
+    }
+    return el('div', { class: 'settings-tcg-block', style: `--c: ${t.color}` }, head, el('div', { class: 'settings-tcg-options' }, options));
   });
 
   setChildren(view, el('div', { class: 'settings-page' },
@@ -335,7 +408,7 @@ async function showTcg(tcg) {
   try {
     [collections, dexStats] = await Promise.all([
       window.tcg.listCollections(tcg.id),
-      tcg.id === 'pokemon' ? window.tcg.pokedexStats() : null,
+      tcg.id === 'pokemon' && tcgPrefs.pokedexShown ? window.tcg.pokedexStats(tcgPrefs.pokedexKinds) : null,
     ]);
   } catch (err) {
     setChildren(view,
@@ -344,7 +417,7 @@ async function showTcg(tcg) {
       el('button', { class: 'btn', onclick: () => showTcg(tcg) }, tr('Retry')));
     return;
   }
-  const pokedexItem = tcg.id !== 'pokemon' ? null :
+  const pokedexItem = tcg.id !== 'pokemon' || !tcgPrefs.pokedexShown ? null :
     el('button', { class: 'collection-item pokedex-item', onclick: () => navigate(showPokedex, tcg) },
       itemHeader('Pokédex', dexStats?.owned, dexStats?.with_fullart),
       el('div', { class: 'collection-meta' },
@@ -356,11 +429,12 @@ async function showTcg(tcg) {
   // Las colecciones custom van junto a la Pokédex, siempre visibles aunque no tengan cartas.
   const setGrid = el('div', { class: 'collection-grid' });
   const customGrid = el('div', { class: 'collection-grid' });
+  // La wishlist solo aparece si tiene cartas (se le añaden desde el ⋮ de cualquier carta).
   const wishCount = wishlist.count(tcg.id);
-  const wishlistItem = el('button', { class: 'collection-item wishlist-item', onclick: () => navigate(showWishlist, tcg) },
-    itemHeader(`♥ ${tr('Wishlist')}`),
-    el('div', { class: 'collection-meta' },
-      wishCount ? tr(wishCount === 1 ? '{n} card' : '{n} cards', { n: wishCount }) : tr('The cards you want to get')));
+  const wishlistItem = !wishCount ? null :
+    el('button', { class: 'collection-item wishlist-item', onclick: () => navigate(showWishlist, tcg) },
+      itemHeader(`✦ ${tr('Wishlist')}`),
+      el('div', { class: 'collection-meta' }, tr(wishCount === 1 ? '{n} card' : '{n} cards', { n: wishCount })));
 
   const renderSets = (cols) => {
     setChildren(customGrid, wishlistItem, pokedexItem, ...cols.filter((c) => c.custom).map((c) => collectionItem(tcg, c)));
@@ -1699,7 +1773,8 @@ function deckDialog({ title, okLabel, deck = null, tcg = 'magic' }) {
       el('div', { class: 'chips' }, options.map(([value, text]) =>
         optionChip(text, value === active, () => { onPick(value); render(); }))));
     const render = () => {
-      const formats = DECK_FORMATS[draft.tcg];
+      // Solo los formatos activados en Settings (al editar un mazo, también el que ya tiene).
+      const formats = DECK_FORMATS[draft.tcg].filter((f) => tcgPrefs.formatOn(draft.tcg, f.id) || f.id === deck?.format);
       if (!formats.some((f) => f.id === draft.format)) draft.format = formats[0].id;
       setChildren(body,
         deck ? null : group('TCG', visibleTcgs().map((t) => [t.id, t.name]), draft.tcg, (v) => { draft.tcg = v; }),
@@ -2178,8 +2253,8 @@ function cardLinkItems(tcg, card, onAllArts) {
     tcgplayerId: card.tcgplayer_id, scryfallUri: card.scryfall_uri, setId: card.set_id || card.setId || card.set?.id };
   return [
     wishlist.has(card.id)
-      ? { label: tr('Remove from wishlist'), icon: '♡', sound: 'remove', onClick: () => wishlist.remove(card.id) }
-      : { label: tr('Add to wishlist'), icon: '♥', sound: 'add', onClick: () => wishlist.add(tcg.id, card) },
+      ? { label: tr('Remove from wishlist'), icon: '✧', sound: 'remove', onClick: () => wishlist.remove(card.id) }
+      : { label: tr('Add to wishlist'), icon: '✦', sound: 'add', onClick: () => wishlist.add(tcg.id, card) },
     { label: tr('View price'), icon: '$', onClick: () => showPrices(tcg, card) },
     onAllArts ? { label: tr('View all arts'), icon: '❐', onClick: onAllArts } : null,
     tcg.id === 'pokemon' ? { label: tr('View on {site}', { site: 'TCG Collector' }), icon: '↗', onClick: () => window.tcg.openTcgCollector(link) } : null,
@@ -2400,12 +2475,12 @@ async function showPokedex(tcg, opts = {}) {
   setChrome(`${tcg.name} › Pokédex`, tcg);
   setChildren(view, el('div', { class: 'loading' },
     el('div', { class: 'spinner' }),
-    el('p', {}, tr('Loading the Pokédex… (the first time it downloads every Full Art card, this takes a few seconds)'))));
+    el('p', {}, tr('Loading the Pokédex… (the first time it downloads every Pokémon card, this takes a few seconds)'))));
 
   let dex, dexNotes;
   try {
     // La nota de la Pokédex se guarda como la de un set más, con id 'pokedex'.
-    const [list, notes] = await Promise.all([window.tcg.getPokedex(opts), window.tcg.getNotes('pokedex')]);
+    const [list, notes] = await Promise.all([window.tcg.getPokedex({ ...opts, kinds: tcgPrefs.pokedexKinds }), window.tcg.getNotes('pokedex')]);
     dex = list;
     dexNotes = { id: 'pokedex', name: 'Pokédex', notes };
   } catch (err) {
@@ -2416,15 +2491,15 @@ async function showPokedex(tcg, opts = {}) {
     return;
   }
 
-  const withCards = dex.filter((p) => p.fullart_count + p.promo_count > 0);
-  const owned = dex.filter((p) => p.owned_count > 0);
+  const withCards = dex.filter((p) => dexTotal(p) > 0);
+  const owned = dex.filter((p) => dexOwned(p) > 0);
   const grid = el('div', { class: 'dex-grid' });
 
   const render = () => {
     const q = dexState.search.trim().toLowerCase();
     const visible = dex.filter((p) => {
-      if (dexState.filter === 'owned' && !p.owned_count) return false;
-      if (dexState.filter === 'missing' && (p.owned_count || !(p.fullart_count + p.promo_count))) return false;
+      if (dexState.filter === 'owned' && !dexOwned(p)) return false;
+      if (dexState.filter === 'missing' && (dexOwned(p) || !dexTotal(p))) return false;
       if (!q) return true;
       return p.name_en.toLowerCase().includes(q) || String(p.dex_id) === q;
     });
@@ -2466,36 +2541,36 @@ async function showPokedex(tcg, opts = {}) {
           el('div', { class: 'chips' },
             filterBtn('all', tr('All')), filterBtn('owned', tr('Collected')), filterBtn('missing', tr('Missing')))))),
     el('p', { class: 'muted hint' },
-      tr('Greyed out: Pokémon without any Full Art card (those with promos can still be opened). Click a Pokémon to see its cards and mark the ones you own.')),
+      tr('Counting: {kinds} (change it in Settings). Greyed out: Pokémon without any of those cards. Click a Pokémon to see its cards and mark the ones you own.',
+        { kinds: listNames(tcgPrefs.pokedexKinds.map(dexKindName)) })),
     grid
   );
   render();
   view.scrollTop = dexState.scroll;
 }
 
+// Cartas de un Pokémon (y cuántas tienes) contando solo los tipos elegidos en Settings.
+const dexTotal = (p) => tcgPrefs.pokedexKinds.reduce((n, k) => n + (p[`${k}_count`] || 0), 0);
+const dexOwned = (p) => tcgPrefs.pokedexKinds.reduce((n, k) => n + (p[`owned_${k}_count`] || 0), 0);
+const dexKindName = (k) => tr(DEX_KINDS.find((x) => x.id === k).label);
+
 function dexTile(tcg, p) {
-  const enabled = p.fullart_count + p.promo_count > 0;
+  const total = dexTotal(p);
+  const enabled = total > 0;
   const name = p.name_en;
-  const owned = p.owned_count > 0;
+  const owned = dexOwned(p) > 0;
   return el('button', {
-    class: 'dex-tile' + (enabled ? '' : ' disabled') + (!p.fullart_count && !owned ? ' no-fullart' : '') + (owned ? ' owned' : ''),
+    class: 'dex-tile' + (enabled ? '' : ' disabled') + (owned ? ' owned' : ''),
     disabled: !enabled,
-    title: !enabled ? tr('{name}: no Full Art cards', { name })
-      : tr('{name}: {fullArt} Full Art · {promos} promos · you own {owned}', { name, fullArt: p.fullart_count, promos: p.promo_count, owned: p.owned_count }),
+    title: !enabled ? tr('{name}: no cards of the chosen types', { name })
+      : tr('{name}: {n} cards · you own {owned}', { name, n: total, owned: dexOwned(p) }),
     onclick: () => { dexState.scroll = view.scrollTop; navigate(showPokemon, tcg, p.dex_id); },
   },
     el('div', { class: 'dex-img-wrap' + (p.best_image ? ' is-card' : '') },
       el('img', { src: p.best_image ? cardImage(p.best_image) : spriteUrl(p.dex_id), alt: name, loading: 'lazy' })),
     el('div', { class: 'dex-num' }, dexNum(p.dex_id)),
     el('div', { class: 'dex-name' }, name),
-    enabled ? el('div', { class: 'dex-count' },
-      dexCountText(p)) : null);
-}
-
-function dexCountText(p) {
-  const fa = p.owned_count - p.owned_promo_count;
-  const promos = p.owned_promo_count ? ` + ${tr(p.owned_promo_count > 1 ? '{n} promos' : '{n} promo', { n: p.owned_promo_count })}` : '';
-  return p.fullart_count ? `${fa} / ${p.fullart_count}${promos}` : (promos ? promos.slice(3) : tr('Promos only'));
+    enabled ? el('div', { class: 'dex-count' }, `${dexOwned(p)} / ${total}`) : null);
 }
 
 function formatPrice(card) {
@@ -2511,7 +2586,7 @@ async function showPokemon(tcg, dexId) {
 
   let data;
   try {
-    data = await window.tcg.getPokemon(dexId);
+    data = await window.tcg.getPokemon(dexId, tcgPrefs.pokedexKinds);
   } catch (err) {
     setChildren(view,
       el('p', { class: 'error' }, tr('Could not load the cards.')),
@@ -2523,12 +2598,12 @@ async function showPokemon(tcg, dexId) {
   const name = pokemon.name_en;
   setChrome(`${tcg.name} › Pokédex › ${name}`, tcg);
 
-  const fullArts = cards.filter((c) => c.kind !== 'promo');
-  const promos = cards.filter((c) => c.kind === 'promo');
+  // Una sección por cada tipo de carta que cuenta en la Pokédex (Settings), con sus cartas y cuántas tienes.
+  const sections = tcgPrefs.pokedexKinds.map((kind) => ({
+    kind, cards: cards.filter((c) => c.kind === kind),
+    grid: el('div', { class: 'card-grid' }), count: el('span', { class: 'muted' }),
+  })).filter((sec) => sec.cards.length);
   const counter = el('div', { class: 'counter' });
-  const grid = el('div', { class: 'card-grid' });
-  const promoGrid = el('div', { class: 'card-grid' });
-  const promoCounter = el('span', { class: 'muted' });
   const tiles = (list) => list.map((card) => cardTile(card, async () => {
     if (card.quantity > 1) return; // la cantidad se gestiona desde el set
     card.quantity = card.quantity > 0 ? 0 : 1;
@@ -2537,12 +2612,11 @@ async function showPokemon(tcg, dexId) {
   }, [`${card.set_name || card.set_id} · #${card.local_id}`, card.rarity || '', formatPrice(card)]));
   const render = () => {
     const ownedOf = (list) => list.filter((c) => c.quantity > 0).length;
-    counter.textContent = tr('{owned} / {total} Full Art cards collected', { owned: ownedOf(fullArts), total: fullArts.length })
-      + (promos.length ? ` · ${tr('{owned} / {total} promos', { owned: ownedOf(promos), total: promos.length })}` : '');
-    promoCounter.textContent = ` (${ownedOf(promos)} / ${promos.length})`;
-    setChildren(grid, ...tiles(fullArts));
-    if (!fullArts.length) grid.append(el('p', { class: 'muted' }, tr('This Pokémon has no Full Art cards.')));
-    setChildren(promoGrid, ...tiles(promos));
+    counter.textContent = sections.map((sec) => `${dexKindName(sec.kind)}: ${ownedOf(sec.cards)} / ${sec.cards.length}`).join(' · ');
+    for (const sec of sections) {
+      sec.count.textContent = ` (${ownedOf(sec.cards)} / ${sec.cards.length})`;
+      setChildren(sec.grid, ...tiles(sec.cards));
+    }
   };
 
   setChildren(view,
@@ -2555,12 +2629,13 @@ async function showPokemon(tcg, dexId) {
           counter))),
     el('p', { class: 'muted hint' },
       tr('Mark the cards you own. The Pokédex will show the most expensive one you own. Hover over a card and use ⤢ to view it larger.')),
-    el('h2', { class: 'section-title' }, 'Full Art'),
-    grid,
-    promos.length ? el('h2', { class: 'section-title promos-title' }, tr('Promos'), promoCounter) : null,
-    promos.length ? el('p', { class: 'muted hint' },
-      tr('All promos for this Pokémon: the API does not say which ones are Full Art, so all of them are shown.')) : null,
-    promos.length ? promoGrid : null
+    sections.length ? null : el('p', { class: 'muted' }, tr('This Pokémon has no cards of the chosen types.')),
+    sections.flatMap((sec) => [
+      el('h2', { class: 'section-title' + (sec === sections[0] ? '' : ' promos-title') }, dexKindName(sec.kind), sec.count),
+      sec.kind === 'promo' ? el('p', { class: 'muted hint' },
+        tr('All promos for this Pokémon: the API does not say which ones are Full Art, so all of them are shown.')) : null,
+      sec.grid,
+    ])
   );
   render();
 }

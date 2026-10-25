@@ -76,24 +76,15 @@ function titleCase(slug) {
   return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-// Todas las cartas Full Art de Pokémon y todas las promos (excluye entrenadores, energías y TCG Pocket).
-// Las promos van aparte (kind = 'promo') porque TCGdex no indica si una promo es Full Art.
-async function fetchFullArtCards() {
+// Todas las cartas de Pokémon (excluye entrenadores, energías y TCG Pocket; unas 20.000, en una sola consulta),
+// con su tipo para la Pokédex: 'fullart' (rarezas de FULL_ART_RARITIES), 'promo' (TCGdex no indica si una promo
+// es Full Art) u 'other' (el resto: comunes, raras, holo…). En Settings se elige qué tipos cuentan.
+async function fetchPokemonCards() {
   const pocket = await getJson(`${BASE}/series/tcgp`).then((s) => new Set(s.sets.map((x) => x.id))).catch(() => new Set());
-  const rarities = [...FULL_ART_RARITIES, 'Promo'];
-  const lists = await mapLimit(rarities, 3, async (rarity) => {
-    const query = `{ cards(filters: {rarity: ${JSON.stringify(rarity)}}) {
-      id localId name image dexId rarity category set { id name } } }`;
-    const json = await getJson(GRAPHQL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    const kind = rarity === 'Promo' ? 'promo' : 'fullart';
-    return (json.data?.cards || []).map((c) => ({ ...c, kind }));
-  });
-  return lists.flat().filter((c) =>
-    c.category === 'Pokemon' && !pocket.has(c.set?.id) && (c.image || c.kind === 'promo'));
+  const data = await graphql(`{ cards(filters: {category: "Pokemon"}) { id localId name image dexId rarity set { id name } } }`);
+  return (data.cards || [])
+    .map((c) => ({ ...c, kind: c.rarity === 'Promo' ? 'promo' : FULL_ART_RARITIES.includes(c.rarity) ? 'fullart' : 'other' }))
+    .filter((c) => !pocket.has(c.set?.id) && (c.image || c.kind === 'promo'));
 }
 
 async function graphql(query) {
@@ -166,6 +157,6 @@ async function fetchCardPricing(cardId) {
 }
 
 module.exports = {
-  fetchSetCards, fetchSets, searchCards, fetchPokedex, fetchFullArtCards, fetchCardPrice, fetchCardPricing, fetchTcgplayerProductId,
+  fetchSetCards, fetchSets, searchCards, fetchPokedex, fetchPokemonCards, fetchCardPrice, fetchCardPricing, fetchTcgplayerProductId,
   mapLimit, FULL_ART_RARITIES,
 };

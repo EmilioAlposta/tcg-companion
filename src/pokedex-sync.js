@@ -1,5 +1,5 @@
-// Sincroniza la Pokédex y asocia cada carta Full Art a su(s) Pokémon.
-const { fetchPokedex, fetchFullArtCards, fetchCardPrice, mapLimit } = require('./pokemon-api');
+// Sincroniza la Pokédex y asocia cada carta de Pokémon a su(s) Pokémon.
+const { fetchPokedex, fetchPokemonCards, fetchCardPrice, mapLimit } = require('./pokemon-api');
 
 const PRICE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // los precios se refrescan cada semana
 
@@ -22,7 +22,7 @@ function makeNameMatcher(species) {
 }
 
 async function syncPokedex(db) {
-  const [species, cards] = await Promise.all([fetchPokedex(), fetchFullArtCards()]);
+  const [species, cards] = await Promise.all([fetchPokedex(), fetchPokemonCards()]);
   const valid = new Set(species.map((s) => s.dexId));
   const matchName = makeNameMatcher(species);
   const mapped = cards
@@ -31,7 +31,7 @@ async function syncPokedex(db) {
   db.replacePokedex(species, mapped);
 }
 
-// Descarga los precios que falten (o estén viejos) de las cartas Full Art de un Pokémon.
+// Descarga los precios que falten (o estén viejos) de las cartas de un Pokémon.
 async function refreshPrices(db, cards) {
   const now = Date.now();
   const stale = cards.filter((c) => !c.price_fetched_at || now - Date.parse(c.price_fetched_at) > PRICE_MAX_AGE_MS);

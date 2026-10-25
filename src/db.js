@@ -181,6 +181,10 @@ class Database {
       this.db.run(`UPDATE collections SET custom = 1, name_filter = NULL, set_id = '', sort_order = 0
                     WHERE id = 'pkm-30th-pikachus'`);
     }
+    // Migración: la Pokédex antes solo guardaba Full Arts y promos; se vuelve a descargar con todas las cartas.
+    if (this.isPokedexSynced() && !this.get(`SELECT 1 AS x FROM fullart_cards WHERE kind = 'other' LIMIT 1`)) {
+      this.db.run('DELETE FROM pokedex');
+    }
     // Cartas de mazo que se quedaron sin copias: salen del mazo.
     this.db.run('DELETE FROM deck_cards WHERE NOT (quantity > 0)');
     this.save();
@@ -804,29 +808,30 @@ class Database {
     return this.get('SELECT COUNT(*) AS n FROM pokedex').n > 0;
   }
 
-  getPokedexStats() {
+  // kinds: tipos de carta que cuentan en la Pokédex ('fullart', 'promo', 'other'); se eligen en Settings.
+  getPokedexStats(kinds) {
+    const kind = kindFilter(kinds);
     return this.get(
       `SELECT (SELECT COUNT(*) FROM pokedex) AS species,
-              (SELECT COUNT(DISTINCT dex_id) FROM fullart_cards) AS with_fullart,
+              (SELECT COUNT(DISTINCT dex_id) FROM fullart_cards f WHERE ${kind}) AS with_fullart,
               (SELECT COUNT(DISTINCT f.dex_id) FROM fullart_cards f
-                 JOIN owned_cards o ON o.card_id = f.id) AS owned`
+                 JOIN owned_cards o ON o.card_id = f.id WHERE ${kind}) AS owned`
     );
   }
 
-  // Cada Pokémon con su nº de Full Arts y promos, y la imagen de la carta más cara que tienes.
-  getPokedex() {
+  // Cada Pokémon con su nº de cartas y de cartas tuyas de cada tipo, y la imagen de la carta más cara que tienes
+  // (de los tipos que cuentan).
+  getPokedex(kinds) {
+    const counts = (k) =>
+      `(SELECT COUNT(*) FROM fullart_cards f WHERE f.dex_id = p.dex_id AND f.kind = '${k}') AS ${k}_count,
+       (SELECT COUNT(*) FROM fullart_cards f JOIN owned_cards o ON o.card_id = f.id
+         WHERE f.dex_id = p.dex_id AND f.kind = '${k}') AS owned_${k}_count`;
     return this.all(
-      `SELECT p.dex_id, p.name_en, p.name_es,
-              (SELECT COUNT(*) FROM fullart_cards f WHERE f.dex_id = p.dex_id AND f.kind = 'fullart') AS fullart_count,
-              (SELECT COUNT(*) FROM fullart_cards f WHERE f.dex_id = p.dex_id AND f.kind = 'promo') AS promo_count,
-              (SELECT COUNT(*) FROM fullart_cards f JOIN owned_cards o ON o.card_id = f.id
-                WHERE f.dex_id = p.dex_id) AS owned_count,
-              (SELECT COUNT(*) FROM fullart_cards f JOIN owned_cards o ON o.card_id = f.id
-                WHERE f.dex_id = p.dex_id AND f.kind = 'promo') AS owned_promo_count,
+      `SELECT p.dex_id, p.name_en, p.name_es, ${POKEDEX_KINDS.map(counts).join(', ')},
               (SELECT f.image_url FROM fullart_cards f
                  JOIN owned_cards o ON o.card_id = f.id
                  LEFT JOIN card_prices cp ON cp.card_id = f.id
-                WHERE f.dex_id = p.dex_id AND f.image_url IS NOT NULL
+                WHERE f.dex_id = p.dex_id AND f.image_url IS NOT NULL AND ${kindFilter(kinds)}
                 ORDER BY COALESCE(cp.price, -1) DESC, f.fetched_at LIMIT 1) AS best_image
          FROM pokedex p ORDER BY p.dex_id`
     );
@@ -836,7 +841,7 @@ class Database {
     return this.get('SELECT * FROM pokedex WHERE dex_id = $id', { id: dexId });
   }
 
-  getPokemonFullArts(dexId) {
+  getPokemonFullArts(dexId, kinds) {
     return this.all(
       `SELECT f.id, f.local_id, f.name, f.rarity, f.set_id, f.set_name, f.image_url, f.kind,
               cp.price, cp.currency, cp.fetched_at AS price_fetched_at,
@@ -844,7 +849,7 @@ class Database {
          FROM fullart_cards f
          LEFT JOIN owned_cards o ON o.card_id = f.id
          LEFT JOIN card_prices cp ON cp.card_id = f.id
-        WHERE f.dex_id = $dex
+        WHERE f.dex_id = $dex AND ${kindFilter(kinds)}
         ORDER BY COALESCE(cp.price, -1) DESC, f.set_id, f.local_id`,
       { dex: dexId }
     );
@@ -861,6 +866,14 @@ class Database {
     stmt.free();
     this.save();
   }
+}
+
+// Tipos de carta de la Pokédex. kindFilter da la condición SQL sobre f.kind con los tipos pedidos (solo los
+// conocidos, para no meter texto en la consulta); sin tipos válidos, Full Arts y promos, como antes de Settings.
+const POKEDEX_KINDS = ['fullart', 'promo', 'other'];
+function kindFilter(kinds) {
+  const valid = POKEDEX_KINDS.filter((k) => Array.isArray(kinds) && kinds.includes(k));
+  return `f.kind IN (${(valid.length ? valid : ['fullart', 'promo']).map((k) => `'${k}'`).join(', ')})`;
 }
 
 const setCollectionId = (setId) => `pkm-set-${setId}`;

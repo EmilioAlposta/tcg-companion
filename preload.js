@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('tcg', {
   getWishlist: (tcg) => ipcRenderer.invoke('wishlist:get', tcg),
   addToWishlist: (tcg, card) => ipcRenderer.invoke('wishlist:add', tcg, card),
   removeFromWishlist: (cardId) => ipcRenderer.invoke('wishlist:remove', cardId),
-  pokedexStats:() => ipcRenderer.invoke('pokedex:stats'),
+  pokedexStats: (kinds) => ipcRenderer.invoke('pokedex:stats', kinds),
   getPokedex: (opts) => ipcRenderer.invoke('pokedex:get', opts),
-  getPokemon: (dexId) => ipcRenderer.invoke('pokedex:pokemon', dexId),
+  getPokemon: (dexId, kinds) => ipcRenderer.invoke('pokedex:pokemon', dexId, kinds),
 });

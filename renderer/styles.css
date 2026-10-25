@@ -278,8 +278,6 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .pokemon-head { display: flex; align-items: center; gap: 16px; }
 .pokemon-sprite { width: 96px; height: 96px; object-fit: contain; }
 
-.dex-tile.no-fullart img { filter: grayscale(1); }
-.dex-tile.no-fullart { opacity: .55; }
 .promos-title { margin-top: 32px; }
 .no-image {
   width: 100%; height: 100%; border-radius: 8px; border: 2px dashed #ffffff33;
@@ -604,6 +602,18 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .settings-tcg-name { flex: 1; font-weight: 600; }
 .settings-tcg-note { font-size: 12px; }
 .settings-tcg.off img, .settings-tcg.off .settings-tcg-name { opacity: .45; }
+.settings-tcgs { gap: 18px; }
+/* Cada TCG es una sola tarjeta (franja de su color a la izquierda): cabecera y, debajo, sus opciones separadas por líneas. */
+.settings-tcg-block {
+  background: var(--panel); border: 1px solid #ffffff14; border-left: 4px solid var(--c); border-radius: 12px; overflow: hidden;
+}
+.settings-tcg-block.off { border-left-color: #ffffff22; }
+.settings-tcg-block .settings-tcg { background: none; border: none; border-radius: 0; padding: 12px 18px; }
+.settings-tcg-options .settings-row {
+  background: none; border: none; border-top: 1px solid #ffffff10; border-radius: 0; margin: 0; padding: 14px 18px 14px 68px;
+}
+.settings-row.stacked { flex-direction: column; align-items: stretch; gap: 12px; }
+.settings-row.stacked .chips { flex-wrap: wrap; }
 
 /* ---------- Mazos ---------- */
 /* Tarjeta de un mazo: como la de un set, con la portada difuminada de fondo y la carta nítida encima */
@@ -721,3 +731,5 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .deck-qty.problem { background: var(--danger); border-color: #fff; color: #fff; }
 .deck-card.has-problem:hover .deck-stepper { border-color: var(--danger); }
 .deck-problem-line { color: var(--danger); }
+.settings-list { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.settings-list b { color: var(--text); font-weight: 600; }

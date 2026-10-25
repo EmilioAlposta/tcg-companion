@@ -295,14 +295,15 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('pokedex:stats', () => (db.isPokedexSynced() ? db.getPokedexStats() : null));
-  ipcMain.handle('pokedex:get', async (_e, { refresh = false } = {}) => {
+  // kinds: tipos de carta que cuentan en la Pokédex ('fullart', 'promo', 'other'), según Settings.
+  ipcMain.handle('pokedex:stats', (_e, kinds) => (db.isPokedexSynced() ? db.getPokedexStats(kinds) : null));
+  ipcMain.handle('pokedex:get', async (_e, { refresh = false, kinds } = {}) => {
     if (refresh || !db.isPokedexSynced()) await syncPokedex(db);
-    return db.getPokedex();
+    return db.getPokedex(kinds);
   });
-  ipcMain.handle('pokedex:pokemon', async (_e, dexId) => {
-    await refreshPrices(db, db.getPokemonFullArts(dexId));
-    return { pokemon: db.getPokemon(dexId), cards: db.getPokemonFullArts(dexId) };
+  ipcMain.handle('pokedex:pokemon', async (_e, dexId, kinds) => {
+    await refreshPrices(db, db.getPokemonFullArts(dexId, kinds));
+    return { pokemon: db.getPokemon(dexId), cards: db.getPokemonFullArts(dexId, kinds) };
   });
 }
 

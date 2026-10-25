@@ -27,7 +27,6 @@ const i18n = (() => {
 
     // Wishlist
     'Wishlist': 'Wishlist',
-    'The cards you want to get': 'Las cartas que quieres conseguir',
     'Add to wishlist': 'Agregar a la wishlist',
     'Remove from wishlist': 'Quitar de la wishlist',
     '{n} already owned': '{n} ya conseguidas',
@@ -39,6 +38,19 @@ const i18n = (() => {
       'Haz clic en una carta para marcarla como tuya cuando la consigas. Usa ⋮ para cambiar la cantidad o quitarla de la wishlist. Desde cualquier set o mazo, ⋮ › Agregar a la wishlist la añade aquí.',
 
     // Settings
+    'Deck formats': 'Formatos de mazo',
+    'Only the active formats are offered when you create a deck. Decks you already have keep their format.':
+      'Al crear un mazo solo se ofrecen los formatos activos. Los mazos que ya tienes conservan su formato.',
+    'Show the Pokédex next to your collections.': 'Muestra la Pokédex junto a tus colecciones.',
+    'Cards to include in your Pokédex collection': 'Cartas que incluir en tu colección de la Pokédex',
+    'Which cards of each Pokémon count. Turn on all three to count any card.':
+      'Qué cartas de cada Pokémon cuentan. Activa las tres para contar cualquier carta.',
+    'Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, Secret Rare, Shiny Ultra Rare…':
+      'Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, Secret Rare, Shiny Ultra Rare…',
+    'Promotional cards from boxes, events and magazines (Black Star Promos).':
+      'Cartas promocionales de cajas, eventos y revistas (Black Star Promos).',
+    'The rest of the cards in the sets: common, uncommon, rare, holo rare, V, VMAX, double rare…':
+      'El resto de las cartas de los sets: comunes, poco comunes, raras, holo, V, VMAX, double rare…',
     'Settings': 'Configuración',
     'Sound, language and the TCGs you collect': 'Sonido, idioma y los TCG que coleccionas',
     'General': 'General',
@@ -386,26 +398,22 @@ const i18n = (() => {
     'No price': 'Sin precio',
 
     // Pokédex
-    'Loading the Pokédex… (the first time it downloads every Full Art card, this takes a few seconds)':
-      'Cargando la Pokédex… (la primera vez descarga todas las cartas Full Art, tarda unos segundos)',
+    'Loading the Pokédex… (the first time it downloads every Pokémon card, this takes a few seconds)':
+      'Cargando la Pokédex… (la primera vez descarga todas las cartas de Pokémon, tarda unos segundos)',
+    'Counting: {kinds} (change it in Settings). Greyed out: Pokémon without any of those cards. Click a Pokémon to see its cards and mark the ones you own.':
+      'Cuentan: {kinds} (se cambia en Configuración). En gris: Pokémon sin ninguna de esas cartas. Haz clic en un Pokémon para ver sus cartas y marcar las que tienes.',
+    '{name}: no cards of the chosen types': '{name}: sin cartas de los tipos elegidos',
+    '{name}: {n} cards · you own {owned}': '{name}: {n} cartas · tienes {owned}',
+    'This Pokémon has no cards of the chosen types.': 'Este Pokémon no tiene cartas de los tipos elegidos.',
+    'Regular cards': 'Cartas normales',
     'Could not download the Pokédex. Are you connected to the internet?': 'No se pudo descargar la Pokédex. ¿Tienes conexión a internet?',
     'No Pokémon match.': 'Ningún Pokémon coincide.',
     'Search by name or number…': 'Buscar por nombre o número…',
     'Collected': 'Conseguidos',
     'Missing': 'Faltan',
-    'Greyed out: Pokémon without any Full Art card (those with promos can still be opened). Click a Pokémon to see its cards and mark the ones you own.':
-      'En gris: Pokémon sin ninguna carta Full Art (los que tienen promos se pueden abrir igual). Haz clic en un Pokémon para ver sus cartas y marcar las que tienes.',
-    '{name}: no Full Art cards': '{name}: sin cartas Full Art',
-    '{name}: {fullArt} Full Art · {promos} promos · you own {owned}': '{name}: {fullArt} Full Art · {promos} promos · tienes {owned}',
-    '{n} promo': '{n} promo',
-    '{n} promos': '{n} promos',
-    'Promos only': 'Solo promos',
     'Promos': 'Promos',
     'Loading cards and prices…': 'Cargando cartas y precios…',
     'Could not load the cards.': 'No se pudieron cargar las cartas.',
-    '{owned} / {total} Full Art cards collected': '{owned} / {total} cartas Full Art conseguidas',
-    '{owned} / {total} promos': '{owned} / {total} promos',
-    'This Pokémon has no Full Art cards.': 'Este Pokémon no tiene cartas Full Art.',
     'Mark the cards you own. The Pokédex will show the most expensive one you own. Hover over a card and use ⤢ to view it larger.':
       'Marca las cartas que tienes. La Pokédex mostrará la más cara que tengas. Pasa el ratón por una carta y usa ⤢ para verla en grande.',
     'All promos for this Pokémon: the API does not say which ones are Full Art, so all of them are shown.':
