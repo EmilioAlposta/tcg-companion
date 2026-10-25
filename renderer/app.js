@@ -179,6 +179,69 @@ function cardImage(url, quality = 'low') {
   return /\.(jpe?g|png|webp|avif)(\?|$)/i.test(url) ? url : `${url}/${quality}.webp`;
 }
 
+// Servidor de las imágenes de cada TCG: al entrar al TCG se abre la conexión, así la primera imagen no espera a
+// conectarse (desde aquí tarda casi medio segundo).
+const IMAGE_HOSTS = {
+  magic: 'https://cards.scryfall.io', pokemon: 'https://assets.tcgdex.net', onepiece: 'https://optcgapi.com',
+  yugioh: 'https://images.ygoprodeck.com', lorcana: 'https://cards.lorcast.io',
+};
+function preconnectImages(tcg) {
+  const href = IMAGE_HOSTS[tcg.id];
+  if (!href) return;
+  document.head.querySelector(`link[rel="preconnect"][href="${href}"]`)?.remove();
+  document.head.append(el('link', { rel: 'preconnect', href }));
+}
+
+// Imagen de una carta en una cuadrícula. En la ventana principal se pide al acercarse a la pantalla (400 px antes):
+// el lazy del navegador pide muchas más de las que se ven y entonces las primeras tardan más en llegar. Las que ya
+// se vieron se ponen al momento (la cuadrícula se vuelve a pintar al marcar cada carta). Mientras carga se ve un
+// hueco animado; si falla, el aviso "Sin imagen".
+// Scryfall y Lorcast tienen una versión pequeña (~12 KB frente a ~80 KB): se muestra primero y se cambia por la
+// normal cuando llega, así la pantalla se llena mucho antes.
+const seenImages = new Set();
+const cardImgObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    cardImgObserver.unobserve(e.target);
+    e.target.load();
+  }
+}, { root: view, rootMargin: '400px 0px' });
+
+const noImage = (card) => el('div', { class: 'no-image' }, card.name, el('br'), tr('No image'));
+const previewImage = (src) => (/^https:\/\/cards\.(scryfall|lorcast)\.io\/normal\//.test(src) ? src.replace('/normal/', '/small/') : null);
+
+function cardImg(card) {
+  const src = cardImage(card.image_url);
+  if (seenImages.has(src)) return el('img', { src, alt: card.name });
+  const preview = previewImage(src);
+  const img = el('img', {
+    class: 'pending', alt: card.name, decoding: 'async',
+    onload: () => img.classList.remove('pending'),
+    onerror: () => { if (img.getAttribute('src') !== src) img.src = src; else img.replaceWith(noImage(card)); },
+  });
+  // Las dos se piden a la vez, la normal con prioridad baja para que las pequeñas de toda la pantalla lleguen
+  // primero; si la normal ya estaba en la caché del disco (un set visto otro día) llega antes y se usa directamente.
+  img.load = () => {
+    if (!preview) {
+      img.addEventListener('load', () => seenImages.add(src), { once: true });
+      img.src = src;
+      return;
+    }
+    const full = new Image();
+    full.fetchPriority = 'low';
+    full.onload = () => { seenImages.add(src); img.src = src; };
+    full.src = src;
+    img.fetchPriority = 'high';
+    img.src = preview;
+  };
+  // Fuera de la ventana principal (diálogos) o si aún no está en la página, el lazy del navegador.
+  requestAnimationFrame(() => {
+    if (img.closest('#view')) cardImgObserver.observe(img);
+    else { img.loading = 'lazy'; img.src = src; }
+  });
+  return img;
+}
+
 // ---------- Vista 1: menú principal ----------
 // Franjas diagonales (una por TCG, Mis mazos y Settings) estilo menú de videojuego: la elegida se despliega
 // con su arte y a la derecha se ve una vista previa. Se elige con el ratón o con ↑ ↓ y Enter.
@@ -533,8 +596,10 @@ function tcgNav(tcg, active, { data, onSection } = {}) {
       item('allsets', tr('All sets'), null, () => { setsState.scroll = 0; switchView(showAllSets, tcg); }),
       item('export', tr('Export'), null, () => openExportDialog(tcg, null)));
   };
+  // Los contadores guardados bastan (la pantalla del TCG los pone al día): pedirlos en cada pantalla haría
+  // esperar a su propia carga, porque la base atiende las consultas de una en una.
   render(data === undefined ? tcgNavCache[tcg.id] : data);
-  if (data === undefined) tcgNavData(tcg).then((d) => { if (nav.isConnected) render(d); }, () => {});
+  if (data === undefined && !tcgNavCache[tcg.id]) tcgNavData(tcg).then((d) => { if (nav.isConnected) render(d); }, () => {});
   return { nav, render };
 }
 
@@ -596,23 +661,27 @@ function tcgPage() {
 
 async function showTcg(tcg) {
   setChrome(tcg.name, tcg);
+  preconnectImages(tcg);
   const state = tcgStateOf(tcg);
   let render = () => nav.render(null); // mientras carga, solo la barra; después, también la sección
   const go = (section) => { state.section = section; sfx.play('click'); render(); };
-  const { content: root, nav } = tcgShell(tcg, () => state.section, { data: null, onSection: go });
-  setChildren(root, el('div', { class: 'loading' }, el('div', { class: 'spinner' }),
-    el('p', {}, tcg.catalog ? tr('Loading… (the first time it downloads every {tcg} card, this takes a few seconds)', { tcg: tcg.short }) : tr('Loading…'))));
-  let data;
-  try {
-    data = await tcgNavData(tcg);
-  } catch (err) {
-    setChildren(root,
-      el('p', { class: 'error' }, tr('Could not download the cards. Are you connected to the internet?')),
-      el('p', { class: 'muted' }, String(err.message || err)),
-      el('button', { class: 'btn', onclick: () => showTcg(tcg) }, tr('Retry')));
-    return;
+  // Con los datos de la última vez la sección se pinta al momento y se pone al día detrás; si no, se espera.
+  const cached = tcgNavCache[tcg.id];
+  const { content: root, nav } = tcgShell(tcg, () => state.section, { data: cached || null, onSection: go });
+  let data = cached;
+  if (!data) {
+    setChildren(root, el('div', { class: 'loading' }, el('div', { class: 'spinner' }),
+      el('p', {}, tcg.catalog ? tr('Loading… (the first time it downloads every {tcg} card, this takes a few seconds)', { tcg: tcg.short }) : tr('Loading…'))));
+    try {
+      data = await tcgNavData(tcg);
+    } catch (err) {
+      setChildren(root,
+        el('p', { class: 'error' }, tr('Could not download the cards. Are you connected to the internet?')),
+        el('p', { class: 'muted' }, String(err.message || err)),
+        el('button', { class: 'btn', onclick: () => showTcg(tcg) }, tr('Retry')));
+      return;
+    }
   }
-  const { decks } = data;
   const activeSets = () => data.collections.filter((c) => !c.custom && c.owned > 0);
   const customs = () => data.collections.filter((c) => c.custom);
   const content = el('div', { class: 'tcg-section' });
@@ -648,7 +717,7 @@ async function showTcg(tcg) {
   const renderDecks = () => [
     sectionHead(tr('Decks'),
       el('button', { class: 'btn btn-secondary btn-icon', onclick: createDeck }, el('span', { class: 'icon-plus' }), tr('Create deck'))),
-    decks.length ? el('div', { class: 'deck-grid' }, decks.map(deckTile))
+    data.decks.length ? el('div', { class: 'deck-grid' }, data.decks.map(deckTile))
       : el('p', { class: 'muted' }, tr('No decks yet. Use Create deck to build your first one.')),
   ];
 
@@ -665,6 +734,7 @@ async function showTcg(tcg) {
 
   setChildren(root, search, content);
   render();
+  if (cached) tcgNavData(tcg).then((d) => { if (content.isConnected) { data = d; render(); } }, () => {});
 }
 
 // Fila de un set en la pantalla del TCG: logo, nombre, año y cartas, y el porcentaje a la derecha.
@@ -2545,9 +2615,7 @@ function cardTile(card, onToggle, lines, getMenu) {
     onclick: (e) => { if (!(card.quantity > 1)) sfx.play(card.quantity > 0 ? 'remove' : 'add'); onToggle(e); },
   },
     el('div', { class: 'card-img-wrap' },
-      card.image_url
-        ? el('img', { src: cardImage(card.image_url), alt: card.name, loading: 'lazy' })
-        : el('div', { class: 'no-image' }, card.name, el('br'), tr('No image')),
+      card.image_url ? cardImg(card) : noImage(card),
       expandButton(card),
       el('div', { class: 'check' }, owned ? '✓' : ''),
       getMenu ? el('button', {

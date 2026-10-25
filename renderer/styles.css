@@ -191,11 +191,12 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .tcg-nav-count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .tcg-nav-item.active .tcg-nav-count { color: #2a2100b0; }
 .tcg-nav-sep { height: 1px; margin: 10px 4px; background: #ffffff14; }
-/* Plegada: solo los iconos (el nombre de cada sección queda en el title) y el botón para desplegarla */
-.tcg-layout.collapsed { grid-template-columns: 50px minmax(0, 1fr); }
-.tcg-layout.collapsed .tcg-nav { padding-right: 8px; }
-.tcg-layout.collapsed .tcg-nav-head { flex-direction: column; gap: 8px; }
-.tcg-layout.collapsed .tcg-nav-toggle { margin-left: 0; }
+/* Plegada: solo los iconos (el nombre de cada sección queda en el title) y, junto al logo, el botón para
+   desplegarla. La barra se mete en el margen izquierdo de la ventana para que quede el mismo hueco a cada lado. */
+.tcg-layout.collapsed { grid-template-columns: 62px minmax(0, 1fr); }
+.tcg-layout.collapsed .tcg-nav { margin-left: -30px; padding: 0 10px; }
+.tcg-layout.collapsed .tcg-nav-head { justify-content: center; gap: 4px; }
+.tcg-layout.collapsed .tcg-nav-toggle { margin-left: 0; width: 26px; padding: 3px; }
 .tcg-layout.collapsed .tcg-nav-toggle .tcg-nav-icon { transform: rotate(180deg); }
 .tcg-layout.collapsed .tcg-nav-label, .tcg-layout.collapsed .tcg-nav-count { display: none; }
 .tcg-layout.collapsed .tcg-nav-item { justify-content: center; padding: 10px 0; }
@@ -265,6 +266,15 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
   filter: grayscale(1) brightness(.5);
   transition: filter .15s;
 }
+/* Mientras llega la imagen: hueco con un brillo que pasa, y la carta aparece con un fundido */
+.card-img-wrap img { opacity: 1; transition: filter .15s, opacity .25s; }
+.card-img-wrap img.pending { opacity: 0; }
+.card-img-wrap:has(img.pending) {
+  border-radius: 8px;
+  background: linear-gradient(100deg, #ffffff08 30%, #ffffff16 50%, #ffffff08 70%) 0 0 / 300% 100%;
+  animation: img-shimmer 1.3s linear infinite;
+}
+@keyframes img-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 /* Hover sobre una carta que falta: color a medias, para distinguir detalles sin que parezca conseguida */
 .card:hover .card-img-wrap img { filter: grayscale(.45) brightness(.8); }
 .card.owned { border-color: var(--ok); }

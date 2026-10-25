@@ -1,20 +1,21 @@
 // Cliente de Scryfall (https://scryfall.com/docs/api): API gratuita y sin API key de Magic: The Gathering.
-// Pide un User-Agent propio y como mucho ~10 peticiones por segundo: las peticiones van de una en una con una pausa.
+// Pide un User-Agent propio y como mucho ~10 peticiones por segundo: cada petición empieza al menos 100 ms después
+// de la anterior (pueden estar varias en curso a la vez, así las páginas de un set llegan en paralelo).
 const BASE = 'https://api.scryfall.com';
 const HEADERS = { 'User-Agent': 'TCGCompanion/0.1', Accept: 'application/json' };
 const MAX_SEARCH_PAGES = 3; // 175 cartas por página: el buscador devuelve como mucho 525
+const PAGE_SIZE = 175;
 
-let queue = Promise.resolve();
-function getJson(url) {
-  const run = queue.then(async () => {
-    const res = await fetch(url, { headers: HEADERS });
-    // 404 en una búsqueda = no hay cartas (Scryfall no devuelve una lista vacía).
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`The API responded ${res.status} for ${url}`);
-    return res.json();
-  });
-  queue = run.catch(() => {}).then(() => new Promise((r) => setTimeout(r, 100)));
-  return run;
+let nextStart = 0;
+async function getJson(url) {
+  const wait = Math.max(0, nextStart - Date.now());
+  nextStart = Math.max(Date.now(), nextStart) + 100;
+  if (wait) await new Promise((r) => setTimeout(r, wait));
+  const res = await fetch(url, { headers: HEADERS });
+  // 404 en una búsqueda = no hay cartas (Scryfall no devuelve una lista vacía).
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`The API responded ${res.status} for ${url}`);
+  return res.json();
 }
 
 // Tipos de set de Scryfall: nombre de la sección en "View sets" y su orden.
@@ -76,22 +77,26 @@ function toCard(c) {
   };
 }
 
-// Recorre las páginas de una búsqueda (175 cartas por página).
-async function searchAll(query, { order = 'set', maxPages = Infinity } = {}) {
+// Todas las páginas de una búsqueda (175 cartas por página, ~1 MB cada una). Las páginas se piden a la vez: con
+// expected (las cartas que se esperan, p. ej. las del set) desde el principio; si no, después de la primera, que
+// dice cuántas cartas hay. Una página de más devuelve 404 y no añade nada.
+async function searchAll(query, { order = 'set', maxPages = Infinity, expected = 0 } = {}) {
   const params = new URLSearchParams({ q: query, unique: 'prints', order, include_extras: 'true', include_variations: 'true' });
-  let url = `${BASE}/cards/search?${params}`;
-  const out = [];
-  for (let page = 0; url && page < maxPages; page++) {
-    const json = await getJson(url);
-    if (!json) break;
-    out.push(...json.data.map(toCard));
-    url = json.has_more ? json.next_page : null;
+  const pageUrl = (page) => `${BASE}/cards/search?${params}&page=${page}`;
+  const pagesFor = (cards) => Math.min(maxPages, Math.max(1, Math.ceil(cards / PAGE_SIZE)));
+  const guessed = pagesFor(expected);
+  const results = await Promise.all(Array.from({ length: guessed }, (_, i) => getJson(pageUrl(i + 1))));
+  const [first] = results;
+  if (!first) return [];
+  const pages = first.has_more ? pagesFor(first.total_cards) : 1;
+  if (pages > guessed) {
+    results.push(...await Promise.all(Array.from({ length: pages - guessed }, (_, i) => getJson(pageUrl(guessed + i + 1)))));
   }
-  return out;
+  return results.slice(0, pages).flatMap((json) => (json?.data || []).map(toCard));
 }
 
-// Todas las cartas de un set, por número de coleccionista.
-const fetchSetCards = (setCode) => searchAll(`e:${setCode} game:paper`);
+// Todas las cartas de un set, por número de coleccionista. expected: las cartas del set según la lista de sets.
+const fetchSetCards = (setCode, expected = 0) => searchAll(`e:${setCode} game:paper`, { expected });
 
 // Busca por nombre en todos los sets (de la más nueva a la más antigua).
 const searchCards = (name) => searchAll(`${name} game:paper`, { order: 'released', maxPages: MAX_SEARCH_PAGES });

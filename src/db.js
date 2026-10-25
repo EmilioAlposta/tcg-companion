@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS cards (
   fetched_at    TEXT NOT NULL,
   PRIMARY KEY (id, collection_id)
 );
+-- Las cartas de un set: la clave empieza por id, así que sin este índice se recorre la tabla entera por cada set
+CREATE INDEX IF NOT EXISTS idx_cards_collection ON cards(collection_id);
 
 CREATE TABLE IF NOT EXISTS owned_cards (
   card_id    TEXT PRIMARY KEY,

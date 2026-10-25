@@ -56,7 +56,8 @@ async function syncCollection(collectionId) {
     return;
   }
   const api = CATALOGS[col.tcg] || SET_LISTS[col.tcg];
-  db.replaceCards(collectionId, api ? await api.fetchSetCards(col.set_id) : await fetchSetCards(col.set_id, col.name_filter));
+  // card_total: las cartas que se esperan, para que Scryfall pida todas las páginas a la vez.
+  db.replaceCards(collectionId, api ? await api.fetchSetCards(col.set_id, col.card_total) : await fetchSetCards(col.set_id, col.name_filter));
 }
 
 async function ensureCatalog(tcg) {
