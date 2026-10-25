@@ -283,11 +283,12 @@ class Database {
               CASE WHEN h.card_id IS NULL THEN 0 ELSE 1 END AS hidden,
               k.data_json,
               CASE WHEN json_extract(k.data_json, '$.category') IS NULL AND json_extract(k.data_json, '$.card_type') IS NULL
-                        AND json_extract(k.data_json, '$.type_line') IS NULL
+                        AND json_extract(k.data_json, '$.type_line') IS NULL AND json_extract(k.data_json, '$.attrs') IS NULL
                    THEN (SELECT s.data_json FROM cards s WHERE s.id = k.id AND s.collection_id <> k.collection_id
                            AND (json_extract(s.data_json, '$.category') IS NOT NULL
                                 OR json_extract(s.data_json, '$.card_type') IS NOT NULL
-                                OR json_extract(s.data_json, '$.type_line') IS NOT NULL) LIMIT 1) END AS source_json
+                                OR json_extract(s.data_json, '$.type_line') IS NOT NULL
+                                OR json_extract(s.data_json, '$.attrs') IS NOT NULL) LIMIT 1) END AS source_json
          FROM cards k LEFT JOIN owned_cards o ON o.card_id = k.id
          LEFT JOIN hidden_cards h ON h.collection_id = k.collection_id AND h.card_id = k.id
          -- Set de cada carta (en una colección custom hay cartas de varios sets): se ordenan como la lista de sets.
@@ -468,15 +469,17 @@ class Database {
   }
 
   // have_exact: copias que tienes de esa impresión; have_any: de cualquier impresión de la misma carta
-  // (en Magic, mismo nombre; en One Piece, mismo código). En Pokémon solo cuenta la impresión exacta.
+  // (en One Piece, mismo código; en el resto, mismo nombre en el mismo TCG). En Pokémon solo cuenta la impresión exacta.
   getDeckCards(deckId) {
+    const tcgOf = (col) => `substr(${col}, 1, instr(${col}, '-'))`; // prefijo del id: 'mtg-', 'ygo-'…
     return this.all(
       `SELECT d.card_id AS id, d.role, d.quantity, d.owned_override, d.set_id, d.local_id, d.name, d.rarity, d.image_url,
               d.data_json,
               COALESCE((SELECT quantity FROM owned_cards WHERE card_id = d.card_id), 0) AS have_exact,
               COALESCE((SELECT SUM(o.quantity) FROM owned_cards o
                          WHERE o.card_id = d.card_id
-                            OR (d.card_id LIKE 'mtg-%' AND o.card_id LIKE 'mtg-%'
+                            OR (${tcgOf('d.card_id')} IN (${SAME_NAME_PREFIXES.map((p) => `'${p}-'`).join(', ')})
+                                AND ${tcgOf('o.card_id')} = ${tcgOf('d.card_id')}
                                 AND EXISTS (SELECT 1 FROM cards k WHERE k.id = o.card_id AND k.name = d.name))
                             OR (d.card_id LIKE 'op-%' AND o.card_id LIKE 'op-%'
                                 AND EXISTS (SELECT 1 FROM cards k WHERE k.id = o.card_id AND k.local_id = d.local_id))), 0) AS have_any
@@ -639,7 +642,8 @@ class Database {
   }
 
   addCardToSet(card) {
-    const cid = String(card.id).startsWith('mtg-') ? magicCollectionId(card.setId) : setCollectionId(card.setId);
+    const tcg = Object.keys(CARD_PREFIX).find((t) => String(card.id).startsWith(`${CARD_PREFIX[t]}-`)) || 'pokemon';
+    const cid = collectionIdFor(tcg, card.setId);
     if (!this.getCollection(cid)) return;
     this.db.run(
       `INSERT OR IGNORE INTO cards (id, collection_id, set_id, local_id, name, rarity, image_url, fetched_at)
@@ -649,29 +653,31 @@ class Database {
     );
   }
 
-  // ---------- One Piece (OPTCG API) ----------
+  // ---------- Catálogos completos (One Piece, Lorcana) ----------
+  // De estos TCG se descargan todos los sets con todas sus cartas de una vez: el buscador funciona sin conexión.
 
-  hasOnePieceSets() {
-    return this.get(`SELECT COUNT(*) AS n FROM collections WHERE id LIKE 'op-set-%'`).n > 0;
+  hasCatalog(tcg) {
+    return this.get('SELECT COUNT(*) AS n FROM collections WHERE tcg = $tcg AND custom = 0', { tcg }).n > 0;
   }
 
   // Guarda el catálogo completo: cada set con todas sus cartas (las cartas que tienes se conservan).
-  replaceOnePieceCatalog(sets) {
+  // rank: los sets con rank más alto van primero.
+  replaceCatalog(tcg, sets) {
     const now = new Date().toISOString();
     this.db.run('BEGIN');
     try {
       const stmt = this.db.prepare(
-        `INSERT INTO collections (id, tcg, name, set_id, sort_order, serie_name, card_total)
-         VALUES ($id, 'onepiece', $name, $set_id, $order, $serie, $total)
+        `INSERT INTO collections (id, tcg, name, set_id, sort_order, serie_name, release_date, card_total)
+         VALUES ($id, $tcg, $name, $set_id, $order, $serie, $date, $total)
          ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order,
-           serie_name = excluded.serie_name, card_total = excluded.card_total`
+           serie_name = excluded.serie_name, release_date = excluded.release_date, card_total = excluded.card_total`
       );
       for (const s of sets) {
-        stmt.run({ $id: onePieceCollectionId(s.id), $name: s.name, $set_id: s.id,
-          $order: 10000 - s.rank, $serie: s.serie, $total: s.cards.length });
+        stmt.run({ $id: collectionIdFor(tcg, s.id), $tcg: tcg, $name: s.name, $set_id: s.id,
+          $order: 10000 - s.rank, $serie: s.serie, $date: s.releaseDate || null, $total: s.cards.length });
       }
       stmt.free();
-      for (const s of sets) this.writeCards(onePieceCollectionId(s.id), s.cards, now);
+      for (const s of sets) this.writeCards(collectionIdFor(tcg, s.id), s.cards, now);
       this.db.run('COMMIT');
     } catch (e) {
       this.db.run('ROLLBACK');
@@ -681,59 +687,75 @@ class Database {
   }
 
   // Busca por nombre en todos los sets descargados (con el mismo formato que el buscador de TCGdex).
-  searchOnePieceCards(name) {
-    return this.queryOnePieceCards('instr(lower(k.name), lower($q)) > 0', { q: name });
+  searchCatalog(tcg, name) {
+    return this.queryCatalog(tcg, 'instr(lower(k.name), lower($q)) > 0', { q: name });
   }
 
-  // Todas las versiones de una carta de One Piece: mismo código (OP01-001) en cualquier set, con sus artes alternativos.
-  onePiecePrintings(code) {
-    return this.queryOnePieceCards('k.local_id = $code', { code });
+  // Todas las versiones de una carta: misma printKey (o, en One Piece, mismo código OP01-001) en cualquier set,
+  // con sus artes alternativos.
+  catalogPrintings(tcg, cardId, localId) {
+    const key = this.get(`SELECT COALESCE(json_extract(data_json, '$.printKey'), local_id) AS k FROM cards
+                           WHERE id = $id AND data_json IS NOT NULL LIMIT 1`, { id: cardId })?.k ?? localId;
+    return this.queryCatalog(tcg, `COALESCE(json_extract(k.data_json, '$.printKey'), k.local_id) = $key`, { key });
   }
 
-  queryOnePieceCards(where, params) {
+  queryCatalog(tcg, where, params) {
     return this.all(
       `SELECT k.id, k.local_id, k.name, k.rarity, k.image_url, k.set_id, c.name AS set_name, k.data_json,
               json_extract(k.data_json, '$.market_price') AS price, json_extract(k.data_json, '$.inventory_price') AS inventory,
               COALESCE(o.quantity, 0) AS quantity
          FROM cards k JOIN collections c ON c.id = k.collection_id
          LEFT JOIN owned_cards o ON o.card_id = k.id
-        WHERE c.tcg = 'onepiece' AND c.custom = 0 AND ${where}
+        WHERE c.tcg = $tcg AND c.custom = 0 AND ${where}
         ORDER BY c.sort_order, k.local_id, k.id LIMIT 500`,
-      params
-    ).map((k) => ({
-      id: k.id, localId: k.local_id, name: k.name, rarity: k.rarity, image: k.image_url,
-      price: k.price, inventory: k.inventory, quantity: k.quantity, set: { id: k.set_id, name: k.set_name },
-      attrs: cardAttrs(parseJson(k.data_json)),
-    }));
+      { ...params, tcg }
+    ).map((k) => {
+      const data = parseJson(k.data_json);
+      return this.withVariantQuantities({
+        id: k.id, localId: k.local_id, name: k.name, rarity: k.rarity, image: k.image_url,
+        price: k.price, inventory: k.inventory, quantity: k.quantity, set: { id: k.set_id, name: k.set_name },
+        attrs: data?.attrs || cardAttrs(data), variants: data?.variantList || null, legal: data?.legal,
+        tcgplayer_id: data?.tcgplayer_id,
+      });
+    });
   }
 
-  // ---------- Magic (Scryfall) ----------
+  // ---------- Listas de sets (Magic, Yu-Gi-Oh!): las cartas de cada set se descargan al abrirlo ----------
 
-  hasMagicSets() {
-    return this.get(`SELECT COUNT(*) AS n FROM collections WHERE id LIKE 'mtg-set-%'`).n > 0;
+  hasSetList(tcg) {
+    return this.get('SELECT COUNT(*) AS n FROM collections WHERE tcg = $tcg AND custom = 0', { tcg }).n > 0;
   }
 
   // Guarda la lista de sets (sin sus cartas: se descargan al abrir cada set, como en Pokémon).
   // sort_order agrupa por tipo de set (expansiones, core sets, masters…); dentro de cada tipo, del más nuevo al más antiguo.
-  replaceMagicSets(sets) {
+  replaceSetList(tcg, sets) {
     const stmt = this.db.prepare(
       `INSERT INTO collections (id, tcg, name, set_id, sort_order, serie_name, release_date, logo, card_total)
-       VALUES ($id, 'magic', $name, $set_id, $order, $serie, $date, $logo, $total)
+       VALUES ($id, $tcg, $name, $set_id, $order, $serie, $date, $logo, $total)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order, serie_name = excluded.serie_name,
          release_date = excluded.release_date, logo = excluded.logo, card_total = excluded.card_total`
     );
     for (const s of sets) {
-      stmt.run({ $id: magicCollectionId(s.id), $name: s.name, $set_id: s.id, $order: 100 + s.rank, $serie: s.serie,
-        $date: s.releaseDate, $logo: s.logo, $total: s.total });
+      stmt.run({ $id: collectionIdFor(tcg, s.id), $tcg: tcg, $name: s.name, $set_id: s.id, $order: 100 + s.rank,
+        $serie: s.serie, $date: s.releaseDate, $logo: s.logo, $total: s.total });
     }
     stmt.free();
     this.save();
   }
 
+  hasMagicSets() {
+    return this.hasSetList('magic');
+  }
+
+  replaceMagicSets(sets) {
+    this.replaceSetList('magic', sets);
+  }
+
   // Datos guardados de una carta (de cualquier colección), p. ej. para los enlaces externos.
+  // Las cartas marcadas desde el buscador en un set sin descargar no tienen datos: se busca la fila que sí los tiene.
   getCardData(cardId) {
-    return parseJson(this.get(`SELECT data_json FROM cards WHERE id = $id AND json_extract(data_json, '$.type_line') IS NOT NULL
-                                 LIMIT 1`, { id: cardId })?.data_json);
+    return parseJson(this.get(`SELECT data_json FROM cards WHERE id = $id AND data_json IS NOT NULL
+                                 AND json_extract(data_json, '$.name') IS NOT NULL LIMIT 1`, { id: cardId })?.data_json);
   }
 
   getQuantities(cardIds) {
@@ -876,9 +898,16 @@ function kindFilter(kinds) {
   return `f.kind IN (${(valid.length ? valid : ['fullart', 'promo']).map((k) => `'${k}'`).join(', ')})`;
 }
 
-const setCollectionId = (setId) => `pkm-set-${setId}`;
-const onePieceCollectionId = (setId) => `op-set-${setId}`;
-const magicCollectionId = (setCode) => `mtg-set-${setCode}`;
+// Prefijo de los ids de carta y de set de cada TCG (las cartas de Pokémon no llevan prefijo: son los ids de TCGdex).
+const CARD_PREFIX = {
+  magic: 'mtg', onepiece: 'op', yugioh: 'ygo', lorcana: 'lor',
+};
+// TCG en los que dos cartas con el mismo nombre son la misma carta (para saber si tienes las de un mazo).
+const SAME_NAME_PREFIXES = Object.entries(CARD_PREFIX).filter(([tcg]) => tcg !== 'onepiece').map(([, p]) => p);
+
+const collectionIdFor = (tcg, setId) => `${tcg === 'pokemon' ? 'pkm' : CARD_PREFIX[tcg]}-set-${setId}`;
+const setCollectionId = (setId) => collectionIdFor('pokemon', setId);
+const magicCollectionId = (setCode) => collectionIdFor('magic', setCode);
 
 function parseJson(text) {
   try {
@@ -894,4 +923,4 @@ function prefix(obj) {
   return out;
 }
 
-module.exports = { Database, setCollectionId, magicCollectionId };
+module.exports = { Database, setCollectionId, magicCollectionId, collectionIdFor };

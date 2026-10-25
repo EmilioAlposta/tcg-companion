@@ -1,16 +1,28 @@
 const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { Database, setCollectionId, magicCollectionId } = require('./src/db');
+const { Database, setCollectionId } = require('./src/db');
 const { fetchSetCards, fetchSets, searchCards, fetchTcgplayerProductId } = require('./src/pokemon-api');
 const { syncPokedex, refreshPrices } = require('./src/pokedex-sync');
 const onePiece = require('./src/onepiece-api');
 const magic = require('./src/magic-api');
+const yugioh = require('./src/yugioh-api');
 const { cardAttrs, cardVariants } = require('./src/card-attrs');
 const { cardPrices } = require('./src/prices');
 const { FORMATS, exportRows, exportFile } = require('./src/export');
 
-const TCG_IDS = ['pokemon', 'onepiece', 'magic'];
+// TCG cuyo catálogo entero se descarga de una vez (la búsqueda va contra la base de datos) y TCG con lista de sets
+// (las cartas de cada set se descargan al abrirlo y la búsqueda va contra la API). Pokémon va aparte (TCGdex).
+const CATALOGS = { onepiece: onePiece, lorcana: require('./src/lorcana-api') };
+const SET_LISTS = { magic, yugioh };
+const TCG_IDS = ['pokemon', ...Object.keys(SET_LISTS), ...Object.keys(CATALOGS)];
+const TCG_NAMES = {
+  pokemon: 'Pokemon', onepiece: 'One Piece', magic: 'Magic', yugioh: 'Yu-Gi-Oh', lorcana: 'Lorcana',
+};
+// Línea de producto de TCGplayer (para su buscador cuando no sabemos el id del producto).
+const TCGPLAYER_LINES = {
+  onepiece: 'one-piece-card-game', magic: 'magic', yugioh: 'yugioh', lorcana: 'lorcana-tcg',
+};
 
 let db;
 
@@ -38,10 +50,21 @@ function createWindow() {
 async function syncCollection(collectionId) {
   const col = db.getCollection(collectionId);
   if (!col) throw new Error(`Unknown collection: ${collectionId}`);
-  const cards = col.tcg === 'onepiece' ? await onePiece.fetchSetCards(col.set_id)
-    : col.tcg === 'magic' ? await magic.fetchSetCards(col.set_id)
-    : await fetchSetCards(col.set_id, col.name_filter);
-  db.replaceCards(collectionId, cards);
+  // One Piece puede descargar un set suelto; los otros catálogos se vuelven a descargar enteros.
+  if (CATALOGS[col.tcg] && !CATALOGS[col.tcg].fetchSetCards) {
+    db.replaceCatalog(col.tcg, await CATALOGS[col.tcg].fetchCatalog());
+    return;
+  }
+  const api = CATALOGS[col.tcg] || SET_LISTS[col.tcg];
+  db.replaceCards(collectionId, api ? await api.fetchSetCards(col.set_id) : await fetchSetCards(col.set_id, col.name_filter));
+}
+
+async function ensureCatalog(tcg) {
+  if (!db.hasCatalog(tcg)) db.replaceCatalog(tcg, await CATALOGS[tcg].fetchCatalog());
+}
+
+async function ensureSetList(tcg) {
+  if (!db.hasSetList(tcg)) db.replaceSetList(tcg, await SET_LISTS[tcg].fetchSets());
 }
 
 // Los formatos de Moxfield solo existen para Magic.
@@ -63,17 +86,19 @@ async function buildExport({ tcg, collectionId, format, mode = 'owned', splitVar
   return { content: exportFile(rows, format, { mode }), rows: rows.length };
 }
 
-async function ensureMagicSets() {
-  if (!db.hasMagicSets()) db.replaceMagicSets(await magic.fetchSets());
-}
-
-// Cartas de Scryfall (buscador o artes) de sets conocidos, con lo que tienes de cada una y sus atributos y versiones.
-async function withMagicOwnership(found) {
-  await ensureMagicSets();
-  const cards = found.filter((c) => db.getCollection(magicCollectionId(c.set.id)));
+// Cartas de Scryfall o YGOPRODeck (buscador o artes) de sets conocidos, con lo que tienes de cada una y sus atributos
+// y versiones. En Yu-Gi-Oh! se ordenan del set más nuevo al más antiguo (Scryfall ya las da así), como mucho 500.
+async function withOwnership(tcg, found) {
+  await ensureSetList(tcg);
+  const sets = Object.fromEntries(db.getCollections(tcg).filter((c) => !c.custom).map((c) => [c.set_id, c]));
+  let cards = found.filter((c) => sets[c.set.id]);
+  if (tcg !== 'magic') {
+    cards = cards.sort((a, b) => (sets[b.set.id].release_date || '').localeCompare(sets[a.set.id].release_date || '')
+      || a.localId.localeCompare(b.localId, undefined, { numeric: true })).slice(0, 500);
+  }
   const qty = db.getQuantities(cards.map((c) => c.id));
   return cards.map((c) => db.withVariantQuantities({
-    ...c, price: c.market_price ?? null, quantity: qty[c.id], attrs: cardAttrs(c), variants: cardVariants(c),
+    ...c, price: c.market_price ?? null, quantity: qty[c.id], attrs: c.attrs || cardAttrs(c), variants: cardVariants(c),
   }));
 }
 
@@ -99,18 +124,18 @@ function registerIpc() {
         if (refreshSets) throw err;
       }
     }
-    if (tcg === 'onepiece' && (refreshSets || !db.hasOnePieceSets())) {
+    if (CATALOGS[tcg] && (refreshSets || !db.hasCatalog(tcg))) {
       try {
-        db.replaceOnePieceCatalog(await onePiece.fetchCatalog());
+        db.replaceCatalog(tcg, await CATALOGS[tcg].fetchCatalog());
       } catch (err) {
-        if (refreshSets || !db.hasOnePieceSets()) throw err;
+        if (refreshSets || !db.hasCatalog(tcg)) throw err;
       }
     }
-    if (tcg === 'magic' && (refreshSets || !db.hasMagicSets())) {
+    if (SET_LISTS[tcg] && (refreshSets || !db.hasSetList(tcg))) {
       try {
-        db.replaceMagicSets(await magic.fetchSets());
+        db.replaceSetList(tcg, await SET_LISTS[tcg].fetchSets());
       } catch (err) {
-        if (refreshSets || !db.hasMagicSets()) throw err;
+        if (refreshSets || !db.hasSetList(tcg)) throw err;
       }
     }
     return db.getCollections(tcg);
@@ -155,21 +180,22 @@ function registerIpc() {
     return db.setVariantQuantity(cardId, String(variant || ''), Number(quantity) || 0);
   });
   ipcMain.handle('cards:search', async (_e, name, tcg) => {
-    // One Piece: el catálogo entero está en la base de datos, se busca sin conexión.
-    if (tcg === 'onepiece') {
-      if (!db.hasOnePieceSets()) db.replaceOnePieceCatalog(await onePiece.fetchCatalog());
-      return db.searchOnePieceCards(name);
+    // Catálogos completos: todas las cartas están en la base de datos, se busca sin conexión.
+    if (CATALOGS[tcg]) {
+      await ensureCatalog(tcg);
+      return db.searchCatalog(tcg, name);
     }
-    if (tcg === 'magic') return withMagicOwnership(await magic.searchCards(name));
+    if (SET_LISTS[tcg]) return withOwnership(tcg, await SET_LISTS[tcg].searchCards(name));
     // Solo se devuelven cartas de sets conocidos: hace falta la lista de sets (p. ej. al buscar desde un mazo).
     if (!db.hasSets()) db.replaceSets(await fetchSets());
     return searchPokemonCards(name);
   });
-  // Artes de una carta: en One Piece, el mismo código en todos los sets;
-  // en Pokémon, las cartas con el mismo nombre, HP, habilidades y ataques (ver printKey); en Magic, el mismo nombre exacto.
+  // Artes de una carta: en los catálogos, la misma printKey en todos los sets (en One Piece, el mismo código);
+  // en Pokémon, las cartas con el mismo nombre, HP, habilidades y ataques (ver printKey); en Magic y Yu-Gi-Oh!,
+  // el mismo nombre exacto.
   ipcMain.handle('card:printings', async (_e, { id, name, localId, tcg }) => {
-    if (tcg === 'onepiece') return db.onePiecePrintings(localId);
-    if (tcg === 'magic') return withMagicOwnership(await magic.fetchPrintings(name));
+    if (CATALOGS[tcg]) return db.catalogPrintings(tcg, id, localId);
+    if (SET_LISTS[tcg]) return withOwnership(tcg, await SET_LISTS[tcg].fetchPrintings(name));
     const exact = String(name).toLowerCase();
     const sameName = await searchPokemonCards(name, (c) => c.name.toLowerCase() === exact);
     const key = sameName.find((c) => c.id === id)?.printKey;
@@ -189,16 +215,15 @@ function registerIpc() {
   });
   // TCGplayer: ficha del producto si TCGdex conoce su id; si no, su buscador con "Nombre nº/total".
   ipcMain.handle('card:openTcgplayer', async (_e, { id, name, localId, official, tcg, tcgplayerId }) => {
-    if (tcg === 'onepiece') {
-      // OPTCG API no da el id de producto: buscamos por el código de la carta (OP01-001).
-      return shell.openExternal('https://www.tcgplayer.com/search/one-piece-card-game/product'
-        + `?productLineName=one-piece-card-game&q=${encodeURIComponent(localId || name)}`);
-    }
-    if (tcg === 'magic') {
+    // Sin id de producto (OPTCG API y YGOPRODeck no lo dan) se usa su buscador: por el código de la carta (OP01-001,
+    // LOB-001) en los TCG que lo llevan impreso; en el resto, por el nombre.
+    const line = TCGPLAYER_LINES[tcg];
+    if (line) {
       const productId = tcgplayerId || db.getCardData(id)?.tcgplayer_id;
+      const query = ['onepiece', 'yugioh'].includes(tcg) && localId ? localId : name;
       return shell.openExternal(productId
         ? `https://www.tcgplayer.com/product/${productId}`
-        : `https://www.tcgplayer.com/search/magic/product?productLineName=magic&q=${encodeURIComponent(name)}`);
+        : `https://www.tcgplayer.com/search/${line}/product?productLineName=${line}&q=${encodeURIComponent(query)}`);
     }
     const productId = await fetchTcgplayerProductId(id).catch(() => null);
     const query = official ? `${name} ${localId}/${official}` : `${name} ${localId}`;
@@ -225,7 +250,7 @@ function registerIpc() {
   ipcMain.handle('export:choosePath', async (e, { tcg, collectionId, format, mode = 'owned', dialogTitle }) => {
     checkExportFormat(tcg, format);
     const col = collectionId ? db.getCollection(collectionId) : null;
-    const tcgName = { pokemon: 'Pokemon', onepiece: 'One Piece', magic: 'Magic' }[tcg] || tcg;
+    const tcgName = TCG_NAMES[tcg] || tcg;
     const title = `${col ? col.name : `${tcgName} collection`} - ${col ? mode : 'owned'}`.replace(/[\\/:*?"<>|]/g, '');
     const { canceled, filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), {
       title: dialogTitle || 'Export collection', // viene traducido de la app

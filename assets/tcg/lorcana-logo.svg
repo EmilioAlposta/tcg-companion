@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Hexágono de tinta con una estrella -->
+  <circle cx="32" cy="32" r="30" fill="#3a1230" stroke="#d9a441" stroke-width="3"/>
+  <g>
+    <path d="M32 9 L52 20.5 V43.5 L32 55 L12 43.5 V20.5 Z" fill="#b03a7a" stroke="#d9a441" stroke-width="2.5"/>
+    <path d="M32 18 L35.5 28.5 L46 32 L35.5 35.5 L32 46 L28.5 35.5 L18 32 L28.5 28.5 Z" fill="#f6e7c1"/>
+  </g>
+</svg>

@@ -27,6 +27,8 @@
 | Pokémon | ✅ Disponible |
 | Magic: The Gathering | ✅ Disponible |
 | One Piece | ✅ Disponible |
+| Yu-Gi-Oh! | ✅ Disponible |
+| Disney Lorcana | ✅ Disponible |
 
 ### Menú principal
 
@@ -65,6 +67,17 @@ Un menú de franjas diagonales al estilo de los videojuegos de lucha, con una fr
 - Enlaces a **Scryfall**, **Moxfield** y **TCGplayer**, y *View all arts* con todas las impresiones de la carta.
 - **Buscador de cartas** en todos los sets y **colecciones custom**, igual que en Pokémon y One Piece.
 
+### Yu-Gi-Oh!
+
+- **Todos los sets** del TCG, agrupados por año en *View sets*, con la imagen de su sobre.
+- Cada impresión es una carta distinta: el mismo set con otra rareza (Common, Ultra Rare, Secret Rare…) se marca aparte.
+- Cada set se descarga al abrirlo por primera vez, como en Magic. El buscador consulta YGOPRODeck.
+
+### Disney Lorcana
+
+- **Todos los sets**, con promos y sets especiales. El catálogo completo (unas 3.500 cartas) se descarga la primera vez que entras, en unos segundos, y el buscador funciona sin conexión, como en One Piece.
+- Cada carta se cuenta en normal y en foil (desde el menú ⋮), salvo las rarezas que solo salen en foil (Enchanted, Epic, Iconic, promos).
+
 ### Precios
 
 Los precios no se muestran debajo de las cartas. En el menú ⋮ de cualquier carta, **View price** abre un diálogo con los precios actuales de cada versión:
@@ -72,6 +85,8 @@ Los precios no se muestran debajo de las cartas. En el menú ⋮ de cualquier ca
 - **Pokémon:** TCGplayer (Market, Low, Mid, High en USD) por versión (Normal, Holofoil, Reverse Holofoil…) y Cardmarket (en EUR) para la normal y la holo / reverse.
 - **Magic:** TCGplayer (USD) y Cardmarket (EUR) de cada acabado: Non-foil, Foil y Etched foil.
 - **One Piece:** TCGplayer (precio de mercado y listado más barato, en USD) de todas las versiones de la carta (normal, Parallel, arte alternativo, promos…).
+- **Yu-Gi-Oh!:** el precio de cada impresión de la carta según YGOPRODeck (USD) y, de cualquier impresión, el más barato en TCGplayer (USD) y Cardmarket (EUR).
+- **Lorcana:** TCGplayer (USD) de la carta normal y de la foil.
 
 ### Filtros avanzados
 
@@ -93,7 +108,7 @@ Desde **Settings**, en el menú principal:
 
 - **Efectos de sonido:** activarlos o desactivarlos.
 - **Idioma:** inglés o español. Cambia todos los textos de la app; los nombres y datos de las cartas (tipos, rarezas, versiones) se muestran tal como los da cada API.
-- **TCG visibles:** ocultar del menú principal los TCG que no coleccionas (por defecto se ven los tres). Sus cartas y mazos no se borran, y siempre queda al menos uno visible.
+- **TCG visibles:** ocultar del menú principal los TCG que no coleccionas (por defecto se ven todos). Sus cartas y mazos no se borran, y siempre queda al menos uno visible.
 
 ## Capturas
 
@@ -137,7 +152,7 @@ Genera un instalador `.exe` en `dist/`.
 | App de escritorio | [Electron](https://www.electronjs.org/) |
 | Interfaz | HTML, CSS y JavaScript sin frameworks |
 | Base de datos | SQLite mediante [sql.js](https://sql.js.org/) (WebAssembly, no hay que compilar nada) |
-| Datos de cartas y precios | [TCGdex](https://tcgdex.dev) para Pokémon, [OPTCG API](https://optcgapi.com) para One Piece y [Scryfall](https://scryfall.com/docs/api) para Magic (gratuitas, sin API key) |
+| Datos de cartas y precios | [TCGdex](https://tcgdex.dev) para Pokémon, [OPTCG API](https://optcgapi.com) para One Piece, [Scryfall](https://scryfall.com/docs/api) para Magic, [YGOPRODeck](https://ygoprodeck.com/api-guide/) para Yu-Gi-Oh! y [Lorcast](https://lorcast.com/docs/api) para Lorcana (gratuitas, sin API key) |
 | Pokédex, nombres y sprites | [PokeAPI](https://pokeapi.co/) |
 | Iconos | `sharp` + `png-to-ico` |
 | Instalador | `electron-builder` |
@@ -153,6 +168,9 @@ Genera un instalador `.exe` en `dist/`.
 │   ├── pokemon-api.js      Cliente de TCGdex y PokeAPI
 │   ├── onepiece-api.js     Cliente de OPTCG API (One Piece)
 │   ├── magic-api.js        Cliente de Scryfall (Magic: The Gathering)
+│   ├── yugioh-api.js       Cliente de YGOPRODeck (Yu-Gi-Oh!)
+│   ├── lorcana-api.js      Cliente de Lorcast (Disney Lorcana)
+│   ├── api-utils.js        Peticiones con pausa y utilidades comunes de esos dos clientes
 │   └── pokedex-sync.js     Sincronización de la Pokédex y precios
 ├── assets/                 Icono de la app, dorso y logo de cada TCG
 ├── scripts/make-icons.js   Genera icon.png / icon.ico desde el logo
@@ -193,19 +211,23 @@ Para añadir otro set de Pokémon basta con una entrada en `SEED_COLLECTIONS` (`
 - Las cartas muy nuevas pueden tardar unas semanas en llegar a TCGdex. Por ejemplo, la promo MEP 101 Nidorina todavía no está.
 - Algunas promos no tienen imagen en la API. Aparecen como un recuadro con el texto "Sin imagen" y se pueden marcar igualmente.
 - Las imágenes de One Piece que da OPTCG API llevan la marca de agua "SAMPLE".
+- YGOPRODeck pide no abusar de sus imágenes: la app las carga directamente de su servidor (el navegador de la app las guarda en caché).
+- En Yu-Gi-Oh! el mínimo de 40 cartas del formato Advanced cuenta también el Extra Deck, porque la app no los separa.
 - Si una carta no tiene precio en TCGplayer se usa el de Cardmarket. En ese caso, comparar cuál es la más cara es aproximado, porque mezcla USD y EUR.
 
 ## Roadmap
 
 - [x] Magic: The Gathering
 - [x] One Piece Card Game
+- [x] Yu-Gi-Oh! y Disney Lorcana
+- [ ] Riftbound, Dragon Ball Super Fusion World, Digimon y Gundam (cuando haya APIs gratuitas con precios e imágenes)
 - [ ] Más sets de Pokémon
 - [ ] Añadir a mano cartas que todavía no están en la API
 
 ## Créditos
 
-Los datos de cartas provienen de [TCGdex](https://tcgdex.dev) (Pokémon) y [OPTCG API](https://optcgapi.com) (One Piece) y [Scryfall](https://scryfall.com) (Magic), y los de la Pokédex de [PokeAPI](https://pokeapi.co/).
-Pokémon y sus nombres son marcas de Nintendo, Creatures Inc. y GAME FREAK inc. Magic: The Gathering es marca de Wizards of the Coast. One Piece es marca de Eiichiro Oda / Shueisha / Bandai. Este proyecto no está afiliado a ninguno de ellos.
+Los datos de cartas provienen de [TCGdex](https://tcgdex.dev) (Pokémon), [OPTCG API](https://optcgapi.com) (One Piece), [Scryfall](https://scryfall.com) (Magic), [YGOPRODeck](https://ygoprodeck.com) (Yu-Gi-Oh!) y [Lorcast](https://lorcast.com) (Lorcana), y los de la Pokédex de [PokeAPI](https://pokeapi.co/).
+Pokémon y sus nombres son marcas de Nintendo, Creatures Inc. y GAME FREAK inc. Magic: The Gathering es marca de Wizards of the Coast. One Piece es marca de Eiichiro Oda / Shueisha / Bandai. Yu-Gi-Oh! es marca de Kazuki Takahashi / Konami. Disney Lorcana es marca de Disney y Ravensburger. Este proyecto no está afiliado a ninguno de ellos.
 
 ## Licencia
 

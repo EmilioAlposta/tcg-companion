@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350">
+  <!-- Dorso genérico: ojo dorado dentro de una pirámide -->
+  <rect width="250" height="350" rx="18" fill="#c9952e"/>
+  <rect x="14" y="14" width="222" height="322" rx="10" fill="#2a1a0c"/>
+  <g fill="none" stroke="#c9952e" stroke-width="2" opacity=".5">
+    <circle cx="125" cy="175" r="92"/><circle cx="125" cy="175" r="78" stroke-width="1"/>
+  </g>
+  <g transform="translate(51 101) scale(2.3125)">
+    <path d="M32 10 L54 50 H10 Z" fill="#c9952e"/>
+    <path d="M32 18 L47 46 H17 Z" fill="#2a1a0c"/>
+    <path d="M21 36 Q32 26 43 36 Q32 46 21 36 Z" fill="#f2d48a"/>
+    <circle cx="32" cy="36" r="4" fill="#2a1a0c"/>
+  </g>
+</svg>

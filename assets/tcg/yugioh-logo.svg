@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Ojo dorado dentro de una pirámide -->
+  <circle cx="32" cy="32" r="30" fill="#2a1a0c" stroke="#c9952e" stroke-width="3"/>
+  <g>
+    <path d="M32 10 L54 50 H10 Z" fill="#c9952e"/>
+    <path d="M32 18 L47 46 H17 Z" fill="#2a1a0c"/>
+    <path d="M21 36 Q32 26 43 36 Q32 46 21 36 Z" fill="#f2d48a"/>
+    <circle cx="32" cy="36" r="4" fill="#2a1a0c"/>
+  </g>
+</svg>

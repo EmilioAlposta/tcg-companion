@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350">
+  <!-- Dorso genérico: hexágono de tinta con una estrella -->
+  <rect width="250" height="350" rx="18" fill="#d9a441"/>
+  <rect x="14" y="14" width="222" height="322" rx="10" fill="#3a1230"/>
+  <g fill="none" stroke="#d9a441" stroke-width="2" opacity=".5">
+    <circle cx="125" cy="175" r="92"/><circle cx="125" cy="175" r="78" stroke-width="1"/>
+  </g>
+  <g transform="translate(51 101) scale(2.3125)">
+    <path d="M32 9 L52 20.5 V43.5 L32 55 L12 43.5 V20.5 Z" fill="#b03a7a" stroke="#d9a441" stroke-width="2.5"/>
+    <path d="M32 18 L35.5 28.5 L46 32 L35.5 35.5 L32 46 L28.5 35.5 L18 32 L28.5 28.5 Z" fill="#f6e7c1"/>
+  </g>
+</svg>

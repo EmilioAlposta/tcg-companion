@@ -1,22 +1,46 @@
 // Navegación simple entre vistas: home -> tcg -> colección
 // Menú principal: art, el arte de la franja (encuadre en artFrame: tamaño y posición para que se vea la cara);
-// cover, la carta grande de la derecha. image es el dorso de la carta; logo, el emblema (Mis mazos, Settings).
+// cover, la carta grande de la derecha (coverFrame / coverRatio: su encuadre y proporción si no es la de siempre).
+// image es el dorso de la carta; logo, el emblema (Mis mazos, Settings).
+// catalog: todas las cartas se descargan de una vez al entrar; variants: las cartas tienen versiones (foil, reverse…)
+// y versionsLabel las nombra al exportar; rarities: nombre completo de las rarezas abreviadas;
+// colorLabel / subtypeLabel: nombre de esos filtros en este TCG.
 const TCGS = [
   { id: 'magic', name: 'Magic: The Gathering', short: 'Magic', image: '../assets/tcg/magic.svg', logo: '../assets/tcg/magic-logo.svg', enabled: true, example: 'Lightning Bolt', source: 'Scryfall',
+    variants: true, versionsLabel: 'Versions (non-foil, foil, etched)',
     color: '#c46a2b',
     art: 'https://cards.scryfall.io/art_crop/front/c/8/c8817585-0d32-4d56-9142-0d29512e86a9.jpg?1783930196',
     artFrame: 'center 12% / cover',
     cover: 'https://cards.scryfall.io/large/front/c/5/c5408607-af8f-48fe-bc40-32828d1976de.jpg?1783913282' },
   { id: 'pokemon', name: 'Pokémon', short: 'Pokémon', image: '../assets/tcg/pokemon.svg', logo: '../assets/tcg/pokemon-logo.svg', enabled: true, example: 'Charizard', source: 'TCGdex',
+    variants: true, versionsLabel: 'Versions (normal, holo, reverse holo, stamped…)', colorLabel: 'Pokémon type', subtypeLabel: 'Trainer / Energy type',
     color: '#2f6fe0',
     art: 'https://assets.tcgdex.net/en/swsh/swsh12.5/160/high.webp',
     artFrame: '0% 47% / 110% auto',
     cover: 'https://assets.tcgdex.net/en/swsh/swsh3/20/high.webp' },
   { id: 'onepiece', name: 'One Piece', short: 'One Piece', image: '../assets/tcg/onepiece.svg', logo: '../assets/tcg/onepiece-logo.svg', enabled: true, example: 'Luffy', source: 'OPTCG API',
+    catalog: true,
+    // OPTCG API da la rareza abreviada: en los filtros se muestra el nombre completo.
+    rarities: { L: 'Leader', C: 'Common', UC: 'Uncommon', R: 'Rare', SR: 'Super Rare', SEC: 'Secret Rare', SP: 'Special', TR: 'Treasure Rare', PR: 'Promo' },
     color: '#6b3fd1',
     art: 'https://optcgapi.com/media/static/Card_Images/OP05-119_p1.jpg',
     artFrame: '50% 26% / 110% auto',
     cover: 'https://optcgapi.com/media/static/Card_Images/OP05-119.jpg' },
+  { id: 'yugioh', name: 'Yu-Gi-Oh!', short: 'Yu-Gi-Oh!', image: '../assets/tcg/yugioh.svg', logo: '../assets/tcg/yugioh-logo.svg', enabled: true, example: 'Dark Magician', source: 'YGOPRODeck',
+    colorLabel: 'Attribute', subtypeLabel: 'Subtype',
+    color: '#8c5a1e',
+    // Dark Magician Girl: el arte recortado (624 × 624) se ve nítido; las Skill Cards con Yugi solo están en baja resolución.
+    art: 'https://images.ygoprodeck.com/images/cards_cropped/38033121.jpg',
+    artFrame: 'center 55% / cover',
+    cover: 'https://images.ygoprodeck.com/images/cards/46986414.jpg',
+    // La imagen de YGOPRODeck lleva un marco gris alrededor y la carta es más estrecha (59 × 86): se amplía para recortarlo.
+    coverFrame: 'center / 107.5% auto', coverRatio: '59 / 86' },
+  { id: 'lorcana', name: 'Disney Lorcana', short: 'Lorcana', image: '../assets/tcg/lorcana.svg', logo: '../assets/tcg/lorcana-logo.svg', enabled: true, example: 'Elsa', source: 'Lorcast',
+    catalog: true, variants: true, versionsLabel: 'Versions (normal, foil)', colorLabel: 'Ink',
+    color: '#b03a7a',
+    art: 'https://cards.lorcast.io/card/digital/large/crd_1a8604b7ba6c45e2bc8b32b0a70d08b5.avif?1709690747',
+    artFrame: '50% 22% / 110% auto',
+    cover: 'https://cards.lorcast.io/card/digital/large/crd_cbc18e77d7ec4d50bf19650a9a559686.avif?1709690747' },
 ];
 
 const view = document.getElementById('view');
@@ -144,12 +168,13 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-// TCGdex da la ruta base de la imagen (se elige la calidad); OPTCG API, la URL completa del .jpg.
-// Scryfall da la URL de la imagen "normal" (con ?versión al final); en grande se pide la "large".
+// TCGdex da la ruta base de la imagen (se elige la calidad); el resto de APIs, la URL completa (a veces con ?versión).
+// Scryfall y Lorcast dan la imagen "normal": en grande se pide la "large"; YGOPRODeck da la pequeña.
 function cardImage(url, quality = 'low') {
   if (!url) return '';
-  if (url.startsWith('https://cards.scryfall.io/')) return quality === 'high' ? url.replace('/normal/', '/large/') : url;
-  return /\.(jpe?g|png|webp)$/i.test(url) ? url : `${url}/${quality}.webp`;
+  if (/^https:\/\/cards\.(scryfall|lorcast)\.io\//.test(url)) return quality === 'high' ? url.replace('/normal/', '/large/') : url;
+  if (url.startsWith('https://images.ygoprodeck.com/')) return quality === 'high' ? url.replace('/cards_small/', '/cards/') : url;
+  return /\.(jpe?g|png|webp|avif)(\?|$)/i.test(url) ? url : `${url}/${quality}.webp`;
 }
 
 // ---------- Vista 1: menú principal ----------
@@ -197,10 +222,11 @@ function showHome() {
       kind: 'tcg', color: t.color, title: t.short, sub: '', open: () => navigate(showTcg, t),
       bg: () => el('div', { class: 'home-bg', style: artStyle(t.art, t.artFrame, t.color) }),
       preview: () => {
-        const card = el('div', { class: 'home-pv-card', style: artStyle(t.cover, 'center / cover', t.color) });
+        const ratio = t.coverRatio ? `; aspect-ratio: ${t.coverRatio}` : '';
+        const card = el('div', { class: 'home-pv-card', style: artStyle(t.cover, t.coverFrame, t.color) + ratio });
         // Sin conexión no carga el arte: se queda el dorso de siempre.
         const probe = new Image();
-        probe.onerror = () => { card.style.cssText = artStyle(t.image, 'center / cover', t.color); };
+        probe.onerror = () => { card.style.cssText = artStyle(t.image, 'center / cover', t.color) + ratio; };
         probe.src = t.cover;
         return card;
       },
@@ -292,6 +318,7 @@ function showHome() {
 
   renderList();
   renderPreview(false);
+  list.classList.toggle('many', visibleTcgs().length > 4);
   setChildren(view, el('div', { class: 'home' }, list, pv));
 
   // Los datos llegan después: la pantalla se pinta sin esperar a la base de datos.
@@ -349,7 +376,9 @@ function showSettings() {
     const last = shown && visibleTcgs().length === 1;
     const head = el('div', { class: 'settings-tcg' + (shown ? '' : ' off') },
       el('img', { src: t.logo, alt: '' }),
-      el('span', { class: 'settings-tcg-name' }, t.name),
+      el('div', { class: 'settings-tcg-name' },
+        el('div', { class: 'settings-title' }, t.name),
+        el('div', { class: 'collection-meta' }, tr('Show {tcg} in the main menu. If you hide it, your cards and decks are kept.', { tcg: t.short }))),
       last ? el('span', { class: 'muted settings-tcg-note' }, tr('At least one TCG stays visible')) : null,
       chips([[true, tr('Show')], [false, tr('Hide')]], shown, (v) => {
         if (v === shown || last) return;
@@ -414,7 +443,7 @@ const tcgById = (id) => TCGS.find((t) => t.id === id) || TCGS[0];
 async function showTcg(tcg) {
   setChrome(tcg.name, tcg);
   setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }),
-    el('p', {}, tcg.id === 'onepiece' ? tr('Loading… (the first time it downloads every One Piece card, this takes a few seconds)') : tr('Loading…'))));
+    el('p', {}, tcg.catalog ? tr('Loading… (the first time it downloads every {tcg} card, this takes a few seconds)', { tcg: tcg.short }) : tr('Loading…'))));
   let collections, dexStats;
   try {
     [collections, dexStats] = await Promise.all([
@@ -607,14 +636,20 @@ async function showAllSets(tcg, opts = {}) {
   view.scrollTop = setsState.scroll;
 }
 
+// Código corto del set para las casillas sin logo (OP01, P1…).
+function setCode(c) {
+  return tcgById(c.tcg).catalog && c.set_id.length <= 12 ? c.set_id : null;
+}
+
 function setTile(c, onClick) {
   const owned = c.owned > 0;
   return el('button', { class: 'set-tile' + (owned ? ' has-cards' : ''), onclick: onClick },
     el('div', { class: 'set-logo' },
       // Scryfall da el símbolo del set en SVG negro: se muestra en blanco (ver .mtg-symbol).
+      // TCGdex da la ruta del logo sin extensión; YGOPRODeck, la imagen del sobre (.jpg). Sin logo, el código del set.
       c.logo && c.tcg === 'magic' ? el('img', { class: 'mtg-symbol', src: c.logo, alt: '', loading: 'lazy' })
-        : c.logo ? el('img', { src: `${c.logo}.webp`, alt: '', loading: 'lazy' })
-        : c.tcg === 'onepiece' ? el('span', { class: 'set-code' }, c.set_id) : el('span', {}, tr('No logo'))),
+        : c.logo ? el('img', { src: /\.(jpe?g|png|webp)$/i.test(c.logo) ? c.logo : `${c.logo}.webp`, alt: '', loading: 'lazy' })
+        : setCode(c) ? el('span', { class: 'set-code' }, setCode(c)) : el('span', {}, tr('No logo'))),
     el('div', { class: 'set-name' }, c.name),
     el('div', { class: 'collection-meta' },
       [c.release_date?.slice(0, 4), owned ? tr('{owned} / {total} cards', { owned: c.owned, total: c.total })
@@ -652,19 +687,22 @@ function progressBar(owned, total) {
 const FILTER_GROUPS = [
   { key: 'type', label: 'Card type', get: (c) => c.attrs?.type,
     order: ['Pokémon', 'Trainer', 'Energy', 'Leader', 'Character', 'Event', 'Stage',
-      'Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Kindred', 'Land', 'Token', 'Emblem'] },
-  { key: 'subtype', label: 'Trainer / Energy type', get: (c) => c.attrs?.subtype,
-    order: ['Item', 'Supporter', 'Stadium', 'Tool', 'Basic Energy', 'Special Energy'] },
+      'Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Kindred', 'Land', 'Token', 'Emblem',
+      'Monster', 'Spell', 'Trap', 'Action', 'Song', 'Item', 'Location'] },
+  { key: 'subtype', label: (tcg) => tcg.subtypeLabel || 'Subtype', get: (c) => c.attrs?.subtype,
+    order: ['Item', 'Supporter', 'Stadium', 'Tool', 'Basic Energy', 'Special Energy',
+      'Normal', 'Effect', 'Ritual', 'Fusion', 'Synchro', 'Xyz', 'Link', 'Pendulum'] },
   // Magic: Legendary, Basic, Snow…
   { key: 'supertype', label: 'Supertype', get: (c) => c.attrs?.supertype, order: ['Legendary', 'Basic', 'Snow', 'World'] },
-  { key: 'color', label: (tcg) => (tcg.id === 'pokemon' ? 'Pokémon type' : 'Color'), get: (c) => c.attrs?.colors,
+  { key: 'color', label: (tcg) => tcg.colorLabel || 'Color', get: (c) => c.attrs?.colors,
     order: (tcg) => (tcg.id === 'magic' ? ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless']
       : ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Fairy', 'Dragon', 'Colorless',
         'Red', 'Green', 'Blue', 'Purple', 'Black', 'Yellow']) },
   { key: 'rarity', label: 'Rarity', get: (c) => c.rarity,
-    display: (v, tcg) => (tcg.id === 'onepiece' && OP_RARITIES[v]) || v,
-    order: ['Common', 'Uncommon', 'Rare', 'Mythic Rare', 'Holo Rare', 'Rare Holo', 'Double rare', 'ACE SPEC Rare', 'Ultra Rare',
-      'Illustration rare', 'Special illustration rare', 'Shiny rare', 'Shiny Ultra Rare', 'Hyper rare', 'Secret Rare',
+    display: (v, tcg) => tcg.rarities?.[v] || v,
+    order: ['Leader', 'Common', 'Uncommon', 'Rare', 'Mythic Rare', 'Holo Rare', 'Rare Holo', 'Double rare', 'ACE SPEC Rare',
+      'Super Rare', 'Legendary', 'Epic', 'Ultra Rare', 'Illustration rare', 'Special illustration rare',
+      'Shiny rare', 'Shiny Ultra Rare', 'Hyper rare', 'Secret Rare', 'Enchanted', 'Iconic', 'Showcase',
       'Special', 'Bonus', 'Promo', 'L', 'C', 'UC', 'R', 'SR', 'SEC', 'SP', 'TR', 'PR'] },
   { key: 'stage', label: 'Stage', get: (c) => c.attrs?.stage, order: ['Basic', 'Stage 1', 'Stage 2'] },
   { key: 'mechanic', label: 'Mechanic', get: (c) => c.attrs?.mechanic, order: ['ex', 'EX', 'GX', 'V', 'VMAX', 'VSTAR'] },
@@ -675,11 +713,6 @@ const FILTER_GROUPS = [
   { key: 'set', label: 'Set', get: (c) => c.set_name || c.setName || c.set?.name, keepOrder: true },
 ];
 const ownedStatus = () => [['owned', tr('Owned')], ['missing', tr('Not owned')]];
-// OPTCG API da la rareza abreviada: en los filtros se muestra el nombre completo.
-const OP_RARITIES = {
-  L: 'Leader', C: 'Common', UC: 'Uncommon', R: 'Rare', SR: 'Super Rare', SEC: 'Secret Rare',
-  SP: 'Special', TR: 'Treasure Rare', PR: 'Promo',
-};
 
 // Filtros elegidos de cada pantalla (por set, y por TCG en los buscadores): se conservan al volver.
 const filterStates = {};
@@ -776,6 +809,86 @@ function advancedFilter(tcg, state, { getCards, statusOptions = ownedStatus, qui
   return { button, badges, chips, update };
 }
 
+// ---------- Desplegables ----------
+// Campo con etiqueta y desplegable con el estilo de la app (un <select> nativo no se puede adaptar). Cada diálogo crea
+// su grupo con dropdownGroup(): solo hay un panel abierto a la vez, y va en <body> con posición fija para que no lo
+// recorte el scroll del diálogo. El diálogo cierra el panel abierto (closePanel) con Escape o con un clic fuera.
+function dropdownGroup() {
+  let openPanel = null;
+  const closePanel = () => {
+    if (!openPanel) return;
+    openPanel.panel.remove();
+    openPanel.trigger.classList.remove('open');
+    openPanel = null;
+  };
+
+  // options: [valor, texto]; getSelected() da los valores elegidos; onPick(valor) cambia la selección. single: una sola
+  // opción; con allOption además la opción "All" (valor null). Sin nada elegido, el campo muestra su nombre.
+  // field: campo de un formulario (siempre tiene valor), sin el resaltado de los filtros aplicados.
+  const dropdown = (title, options, single, getSelected, onPick, { allOption = single, field = false } = {}) => {
+    const value = el('span', { class: 'dropdown-value' });
+    const trigger = el('button', {
+      class: 'dropdown-trigger' + (field ? ' field' : ''), type: 'button', 'aria-haspopup': 'listbox',
+      // stopPropagation: el clic no llega a document, así que el sonido se pone aquí.
+      onclick: (e) => { e.stopPropagation(); sfx.play('click'); if (openPanel?.trigger === trigger) closePanel(); else open(); },
+    }, value, el('span', { class: 'dropdown-caret' }));
+    const items = allOption ? [[null, tr('All')], ...options] : options;
+
+    const refresh = () => {
+      const labels = options.filter(([v]) => getSelected().includes(v)).map(([, l]) => l);
+      value.textContent = !labels.length ? title : labels.length <= 2 ? labels.join(', ') : tr('{n} selected', { n: labels.length });
+      trigger.classList.toggle('has-value', labels.length > 0);
+    };
+
+    const open = () => {
+      closePanel();
+      const panel = el('div', {
+        class: 'dropdown-panel', role: 'listbox', 'aria-multiselectable': String(!single),
+        onclick: (e) => e.stopPropagation(),
+      });
+      const renderItems = () => {
+        const selected = getSelected();
+        setChildren(panel,
+          items.map(([v, label]) => {
+            const on = v === null ? !selected.length : selected.includes(v);
+            return el('button', {
+              class: 'dropdown-item' + (on ? ' selected' : ''), type: 'button', role: 'option', 'aria-selected': String(on),
+              onclick: () => {
+                sfx.play(on && !single ? 'uncheck' : 'check');
+                if (single) closePanel();
+                onPick(v);
+                refresh();
+                if (!single) renderItems();
+              },
+            }, el('span', { class: single ? 'dropdown-radio' : 'dropdown-check' }), label);
+          }),
+          !single && selected.length ? el('button', {
+            class: 'dropdown-clear', type: 'button',
+            onclick: () => { sfx.play('uncheck'); selected.forEach(onPick); refresh(); renderItems(); },
+          }, tr('Clear selection')) : null);
+      };
+      renderItems();
+      document.body.append(panel);
+      // Debajo del campo si cabe; si no, encima. Si no cabe entero, con scroll.
+      const r = trigger.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const up = panel.offsetHeight > below && above > below;
+      panel.style.minWidth = `${r.width}px`;
+      panel.style.maxHeight = `${Math.max(120, up ? above : below)}px`;
+      panel.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - panel.offsetWidth - 8))}px`;
+      panel.style.top = up ? `${Math.max(8, r.top - 4 - panel.offsetHeight)}px` : `${r.bottom + 4}px`;
+      trigger.classList.add('open');
+      openPanel = { panel, trigger };
+    };
+
+    refresh();
+    return el('div', { class: 'filter-field' }, el('span', { class: 'filter-field-label' }, title), trigger);
+  };
+
+  return { dropdown, closePanel, isOpen: () => !!openPanel };
+}
+
 // Trabaja sobre una copia: devuelve el estado nuevo al pulsar "Apply", o null si se cancela.
 // Cada grupo es un desplegable: de selección múltiple, o de una sola opción si el grupo es single.
 function openFilterDialog(tcg, cards, state, statusOptions) {
@@ -786,77 +899,7 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
       values: Object.fromEntries(Object.entries(state.values).map(([k, v]) => [k, [...v]])),
     };
     const body = el('div', { class: 'filter-groups' });
-
-    // El panel abierto va en <body> con posición fija, para que no lo recorte el scroll del diálogo.
-    let openPanel = null;
-    const closePanel = () => {
-      if (!openPanel) return;
-      openPanel.panel.remove();
-      openPanel.trigger.classList.remove('open');
-      openPanel = null;
-    };
-
-    // options: [valor, texto]; getSelected() da los valores elegidos; onPick(valor) cambia la selección
-    // (en los de una sola opción, valor null = "All"). Sin nada elegido, el campo muestra su nombre.
-    const dropdown = (title, options, single, getSelected, onPick) => {
-      const value = el('span', { class: 'dropdown-value' });
-      const trigger = el('button', {
-        class: 'dropdown-trigger', type: 'button', 'aria-haspopup': 'listbox',
-        // stopPropagation: el clic no llega a document, así que el sonido se pone aquí.
-        onclick: (e) => { e.stopPropagation(); sfx.play('click'); if (openPanel?.trigger === trigger) closePanel(); else open(); },
-      }, value, el('span', { class: 'dropdown-caret' }));
-      const items = single ? [[null, tr('All')], ...options] : options;
-
-      const refresh = () => {
-        const labels = options.filter(([v]) => getSelected().includes(v)).map(([, l]) => l);
-        value.textContent = !labels.length ? title : labels.length <= 2 ? labels.join(', ') : tr('{n} selected', { n: labels.length });
-        trigger.classList.toggle('has-value', labels.length > 0);
-      };
-
-      const open = () => {
-        closePanel();
-        const panel = el('div', {
-          class: 'dropdown-panel', role: 'listbox', 'aria-multiselectable': String(!single),
-          onclick: (e) => e.stopPropagation(),
-        });
-        const renderItems = () => {
-          const selected = getSelected();
-          setChildren(panel,
-            items.map(([v, label]) => {
-              const on = v === null ? !selected.length : selected.includes(v);
-              return el('button', {
-                class: 'dropdown-item' + (on ? ' selected' : ''), type: 'button', role: 'option', 'aria-selected': String(on),
-                onclick: () => {
-                  sfx.play(on && !single ? 'uncheck' : 'check');
-                  onPick(v);
-                  refresh();
-                  if (single) closePanel(); else renderItems();
-                },
-              }, el('span', { class: single ? 'dropdown-radio' : 'dropdown-check' }), label);
-            }),
-            !single && selected.length ? el('button', {
-              class: 'dropdown-clear', type: 'button',
-              onclick: () => { sfx.play('uncheck'); selected.forEach(onPick); refresh(); renderItems(); },
-            }, tr('Clear selection')) : null);
-        };
-        renderItems();
-        document.body.append(panel);
-        // Debajo del campo si cabe; si no, encima. Si no cabe entero, con scroll.
-        const r = trigger.getBoundingClientRect();
-        const below = window.innerHeight - r.bottom - 12;
-        const above = r.top - 12;
-        const up = panel.offsetHeight > below && above > below;
-        panel.style.minWidth = `${r.width}px`;
-        panel.style.maxHeight = `${Math.max(120, up ? above : below)}px`;
-        panel.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - panel.offsetWidth - 8))}px`;
-        panel.style.top = up ? `${Math.max(8, r.top - 4 - panel.offsetHeight)}px` : `${r.bottom + 4}px`;
-        trigger.classList.add('open');
-        openPanel = { panel, trigger };
-      };
-
-      refresh();
-      return el('div', { class: 'filter-field' }, el('span', { class: 'filter-field-label' }, title), trigger);
-    };
+    const { dropdown, closePanel, isOpen } = dropdownGroup();
 
     const render = () => {
       closePanel();
@@ -909,14 +952,14 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
     const onKey = (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        if (openPanel) closePanel(); else close(null);
+        if (isOpen()) closePanel(); else close(null);
       }
       // Enter sobre un botón (p. ej. una opción del desplegable) lo pulsa; en cualquier otro sitio, aplica.
       if (e.key === 'Enter' && !e.target.closest?.('button')) { e.preventDefault(); apply(); }
     };
     const overlay = el('div', {
       class: 'dialog-overlay',
-      onclick: (e) => { if (openPanel) closePanel(); else if (e.target === overlay) close(null); },
+      onclick: (e) => { if (isOpen()) closePanel(); else if (e.target === overlay) close(null); },
     },
       el('div', { class: 'dialog filter-dialog', role: 'dialog' },
         el('h3', {}, tr('Filters')),
@@ -1100,7 +1143,7 @@ function exportButton(tcg, collection) {
 
 function openExportDialog(tcg, collection) {
   const opts = { mode: 'owned', splitVariants: true, format: 'xlsx' };
-  const withVariants = tcg.id !== 'onepiece'; // en One Piece cada versión ya es una carta distinta
+  const withVariants = !!tcg.variants; // en los otros TCG cada versión ya es una carta distinta
   const body = el('div', { class: 'export-groups' });
   const actions = el('div', { class: 'dialog-actions' });
   const close = () => {
@@ -1120,7 +1163,7 @@ function openExportDialog(tcg, collection) {
     setChildren(body,
       collection ? group(tr('Cards'), [['owned', tr('Cards I own')], ['missing', tr('Cards I am missing')]], 'mode') : null,
       collection && opts.mode === 'missing' && withVariants ? group(
-        tr(tcg.id === 'magic' ? 'Versions (non-foil, foil, etched)' : 'Versions (normal, holo, reverse holo, stamped…)'), [
+        tr(tcg.versionsLabel), [
         [true, tr('Each missing version')], [false, tr('Only cards with no copies')],
       ], 'splitVariants') : null,
       group(tr('Format'), formats.map((f) => [f.key, tr(f.label)]), 'format'),
@@ -1538,7 +1581,8 @@ async function showWishlist(tcg) {
 // marcar al revés (p. ej. una sola copia que usas en dos mazos), sin cambiar la colección.
 
 // Formatos de cada TCG. size: nº exacto de cartas; min: mínimo; maxCopies: copias de una misma carta (sin contar
-// tierras básicas / Energía básica); commander / leader: hueco aparte para esa carta; legal: formato en Scryfall.
+// tierras básicas / Energía básica); commander / leader: hueco aparte para esa carta; legal: formato en el que la API
+// dice que la carta es legal (Scryfall, Lorcast).
 const DECK_FORMATS = {
   magic: [
     { id: 'commander', name: 'Commander', size: 100, maxCopies: 1, commander: true, legal: 'commander' },
@@ -1559,12 +1603,27 @@ const DECK_FORMATS = {
     { id: 'standard', name: 'Standard', size: 50, maxCopies: 4, leader: true },
     { id: 'casual', name: 'Casual', leader: true },
   ],
+  // El mínimo cuenta también el Extra Deck (la app no los separa).
+  yugioh: [
+    { id: 'advanced', name: 'Advanced', min: 40, maxCopies: 3 },
+    { id: 'casual', name: 'Casual' },
+  ],
+  lorcana: [
+    { id: 'core', name: 'Core Constructed', min: 60, maxCopies: 4, legal: 'core' },
+    { id: 'infinity', name: 'Infinity Constructed', min: 60, maxCopies: 4, legal: 'infinity' },
+    { id: 'casual', name: 'Casual' },
+  ],
 };
+// Cada formato sabe de qué TCG es (para los textos de ayuda).
+for (const [tcg, formats] of Object.entries(DECK_FORMATS)) for (const f of formats) f.tcg = tcg;
+// Cartas que no cuentan para el máximo de copias, por TCG (el texto va entre paréntesis en los avisos).
+const deckBasicsNote = { magic: '(basic lands aside)', pokemon: '(basic Energy aside)' };
 const deckFormat = (deck) => (DECK_FORMATS[deck.tcg] || []).find((f) => f.id === deck.format)
   || { id: deck.format, name: deck.format || 'Casual' };
-// Hueco aparte del formato: rol de sus cartas en la base de datos, nombre y cuántas caben (dos commanders con Partner).
+// Hueco aparte del formato: rol de sus cartas en la base de datos, nombre, cuántas caben (dos commanders con Partner)
+// y tipo de carta que puede ir en él.
 const specialSlot = (fmt) => (fmt.commander ? { role: 'commander', label: 'Commander', max: 2 }
-  : fmt.leader ? { role: 'leader', label: 'Leader', max: 1 } : null);
+  : fmt.leader ? { role: 'leader', label: 'Leader', type: 'Leader', max: 1 } : null);
 const typesOf = (c) => [].concat(c.attrs?.type || []);
 // Nombre traducido del formato y del hueco aparte (en minúscula para usarlo dentro de una frase).
 const fmtName = (fmt) => tr(fmt.name);
@@ -1577,7 +1636,11 @@ function formatHint(fmt) {
       : tr('1 leader, all in the leader\'s colors.');
   }
   if (fmt.size) return tr('{size} cards, up to {max} copies of each card (basic Energy aside).', { size: fmt.size, max: fmt.maxCopies });
-  if (fmt.min) return tr('At least {min} cards, up to {max} copies of each card (basic lands aside). Card legality comes from Scryfall.', { min: fmt.min, max: fmt.maxCopies });
+  if (fmt.min && fmt.legal) {
+    return tr(deckBasicsNote[fmt.tcg] ? 'At least {min} cards, up to {max} copies of each card (basic lands aside). Card legality comes from Scryfall.'
+      : 'At least {min} cards, up to {max} copies of each card. Card legality comes from {source}.', { min: fmt.min, max: fmt.maxCopies, source: tcgById(fmt.tcg).source });
+  }
+  if (fmt.min) return tr('At least {min} cards, up to {max} copies of each card.', { min: fmt.min, max: fmt.maxCopies });
   return tr('No deck-building rules: any cards, any number of copies.');
 }
 
@@ -1640,7 +1703,7 @@ function deckIssues(deck, cards) {
   }
   if (fmt.min && total < fmt.min) issues.push(tr('The deck needs at least {min} cards: it has {total}.', { min: fmt.min, total }));
   if (fmt.maxCopies) {
-    // La misma carta: mismo código en One Piece (artes alternativos incluidos), mismo nombre en Magic y Pokémon.
+    // La misma carta: mismo código en One Piece (artes alternativos incluidos), mismo nombre en el resto.
     const counts = new Map();
     for (const c of cards.filter((x) => x.role !== 'leader' && !isBasic(deck, x))) {
       const key = deck.tcg === 'onepiece' ? c.local_id : c.name.toLowerCase();
@@ -1651,7 +1714,7 @@ function deckIssues(deck, cards) {
     }
     const over = [...counts.values()].filter((e) => e.n > fmt.maxCopies);
     for (const e of over) flag(e.cards, tr('{n} copies: at most {max} allowed', { n: e.n, max: fmt.maxCopies }));
-    const basics = deck.tcg === 'magic' ? ` ${tr('(basic lands aside)')}` : deck.tcg === 'pokemon' ? ` ${tr('(basic Energy aside)')}` : '';
+    const basics = deckBasicsNote[deck.tcg] ? ` ${tr(deckBasicsNote[deck.tcg])}` : '';
     if (over.length) {
       issues.push(fmt.maxCopies === 1 ? tr('Only one copy of each card{basics}: {cards}.', { basics, cards: nameList(over) })
         : tr('At most {max} copies of each card{basics}: {cards}.', { max: fmt.maxCopies, basics, cards: nameList(over) }));
@@ -1668,12 +1731,13 @@ function deckIssues(deck, cards) {
     if (outside.length) issues.push(tr('Outside the commander\'s colors: {cards}.', { cards: nameList(outside) }));
     flag(outside, tr("Outside the commander's colors"));
   }
-  if (fmt.leader) {
-    const leaders = main.filter((c) => typesOf(c).includes('Leader'));
+  if (slot?.type) {
+    // El líder va en su hueco; las demás cartas tienen que compartir alguno de sus colores.
+    const leaders = main.filter((c) => typesOf(c).includes(slot.type));
     if (leaders.length) issues.push(tr('Leaders can\'t go in the main deck: {cards}.', { cards: nameList(leaders) }));
     flag(leaders, tr("Leaders can't go in the main deck"));
     const colors = new Set(special.flatMap((c) => c.attrs?.colors || []));
-    const outside = colors.size ? main.filter((c) => !typesOf(c).includes('Leader') && c.attrs?.colors?.length
+    const outside = colors.size ? main.filter((c) => !typesOf(c).includes(slot.type) && c.attrs?.colors?.length
       && !c.attrs.colors.some((x) => colors.has(x))) : [];
     if (outside.length) issues.push(tr('Not in the leader\'s colors: {cards}.', { cards: nameList(outside) }));
     flag(outside, tr("Not in the leader's colors"));
@@ -1779,29 +1843,34 @@ function deckDialog({ title, okLabel, deck = null, tcg = 'magic' }) {
       oninput: (e) => { draft.name = e.target.value; error.textContent = ''; },
     });
     const body = el('div', { class: 'export-groups' });
-    const group = (label, options, active, onPick) => el('div', { class: 'export-group' },
-      el('div', { class: 'filter-field-label' }, label),
-      el('div', { class: 'chips' }, options.map(([value, text]) =>
-        optionChip(text, value === active, () => { onPick(value); render(); }))));
+    const { dropdown, closePanel, isOpen } = dropdownGroup();
+    const field = (label, options, active, onPick) => dropdown(label, options, true, () => [active], (value) => {
+      onPick(value);
+      render();
+    }, { allOption: false, field: true });
     const render = () => {
       // Solo los formatos activados en Settings (al editar un mazo, también el que ya tiene).
       const formats = DECK_FORMATS[draft.tcg].filter((f) => tcgPrefs.formatOn(draft.tcg, f.id) || f.id === deck?.format);
       if (!formats.some((f) => f.id === draft.format)) draft.format = formats[0].id;
       setChildren(body,
-        deck ? null : group('TCG', visibleTcgs().map((t) => [t.id, t.name]), draft.tcg, (v) => { draft.tcg = v; }),
-        group(tr('Format'), formats.map((f) => [f.id, fmtName(f)]), draft.format, (v) => { draft.format = v; }),
+        el('div', { class: 'deck-dialog-fields' + (deck ? ' single' : '') },
+          deck ? null : field('TCG', visibleTcgs().map((t) => [t.id, t.name]), draft.tcg, (v) => { draft.tcg = v; }),
+          field(tr('Format'), formats.map((f) => [f.id, fmtName(f)]), draft.format, (v) => { draft.format = v; })),
         el('p', { class: 'muted export-hint' }, formatHint(formats.find((f) => f.id === draft.format))));
     };
-    const close = (value) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
+    const close = (value) => { closePanel(); overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
     const accept = () => {
       if (!draft.name.trim()) { error.textContent = tr('Give the deck a name.'); input.focus(); return; }
       close({ name: draft.name.trim(), tcg: draft.tcg, format: draft.format });
     };
     const onKey = (e) => {
-      if (e.key === 'Escape') { e.stopPropagation(); close(null); }
+      if (e.key === 'Escape') { e.stopPropagation(); if (isOpen()) closePanel(); else close(null); }
       if (e.key === 'Enter' && !e.target.closest?.('button')) { e.preventDefault(); accept(); }
     };
-    const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(null); } },
+    const overlay = el('div', {
+      class: 'dialog-overlay',
+      onclick: (e) => { if (isOpen()) closePanel(); else if (e.target === overlay) close(null); },
+    },
       el('div', { class: 'dialog export-dialog', role: 'dialog' },
         el('h3', {}, title),
         el('p', { class: 'muted' }, deck ? tcgById(deck.tcg).name : tr('Choose a name, the TCG and the format. You can change the name and format later.')),
@@ -1828,11 +1897,14 @@ const DECK_GROUPS = {
   },
   pokemon: { order: ['Pokémon', 'Trainer', 'Energy'] },
   onepiece: { order: ['Character', 'Event', 'Stage'] },
+  yugioh: { order: ['Monster', 'Spell', 'Trap'] },
+  lorcana: { order: ['Character', 'Action', 'Song', 'Item', 'Location'], priority: ['Character', 'Song', 'Action', 'Item', 'Location'] },
 };
 const GROUP_TITLES = {
   Creature: 'Creatures', Planeswalker: 'Planeswalkers', Battle: 'Battles', Instant: 'Instants', Sorcery: 'Sorceries',
   Artifact: 'Artifacts', Enchantment: 'Enchantments', Land: 'Lands', Trainer: 'Trainers', Character: 'Characters',
-  Event: 'Events', Stage: 'Stages',
+  Event: 'Events', Stage: 'Stages', Monster: 'Monsters', Spell: 'Spells', Trap: 'Traps', Action: 'Actions', Song: 'Songs',
+  Item: 'Items', Location: 'Locations',
 };
 const deckViewState = {}; // filtro All / Owned / Not owned, por mazo
 
@@ -1869,7 +1941,7 @@ async function showDeck(deckId) {
   const removeCopy = (c) => changeCopies(c, -1);
   const slot = () => specialSlot(deckFormat(deck));
   const special = () => (slot() ? cards.filter((c) => c.role === slot().role) : []);
-  const canBeSpecial = (c) => (slot()?.role === 'leader' ? typesOf(c).includes('Leader')
+  const canBeSpecial = (c) => (slot()?.type ? typesOf(c).includes(slot().type)
     : !c.attrs || [].concat(c.attrs.supertype || []).includes('Legendary'));
 
   // Marcar si la tienes solo cambia este mazo: si coincide con tu colección, se quita la marca.
@@ -2038,7 +2110,7 @@ async function showDeck(deckId) {
     const t = { ...c, image_url: c.image, local_id: c.localId };
     return el('div', {
       class: 'card pick deck-pick' + (entry ? ' owned' : ''),
-      title: special ? tr(entry.role === 'leader' ? 'This card is the deck\'s leader' : 'This card is the deck\'s commander')
+      title: special ? tr('This card is the deck\'s {slot}', { slot: slotName(slot()) })
         : tr('Click to add a copy to the deck'),
       onclick: () => { if (special) return; sfx.play('add'); addCard(c); },
     },
@@ -2051,7 +2123,7 @@ async function showDeck(deckId) {
           class: 'pick-minus', title: tr('Remove a copy'),
           onclick: (e) => { e.stopPropagation(); sfx.play('remove'); removeCopy(c); },
         }, el('span', { class: 'icon-minus' })) : null,
-        entry ? el('div', { class: 'deck-qty' }, special ? tr(entry.role === 'leader' ? 'Leader' : 'Commander')
+        entry ? el('div', { class: 'deck-qty' }, special ? tr(slot().label)
           : tr('×{n} in deck', { n: entry.quantity })) : null),
       el('div', { class: 'card-info' },
         el('div', { class: 'card-name' }, `#${c.localId} ${c.name}`),
@@ -2124,7 +2196,8 @@ function pickSpecialCard(tcg, slot) {
     const body = el('div', { class: 'printings-body' });
     const input = el('input', {
       class: 'search', type: 'search',
-      placeholder: tr(isCommander ? 'Search commanders, e.g. Atraxa' : 'Search leaders, e.g. Luffy'),
+      placeholder: isCommander ? tr('Search commanders, e.g. Atraxa')
+        : tr('Search leaders, e.g. {example}', { example: tcg.example }),
       onkeydown: (e) => { if (e.key === 'Enter') run(); },
     });
     const run = async () => {
@@ -2134,7 +2207,7 @@ function pickSpecialCard(tcg, slot) {
       try {
         // Scryfall: is:commander = cartas que pueden ser commander (legendarias, o que lo dicen en su texto).
         const found = (await window.tcg.searchCards(isCommander ? `${q} is:commander` : q, tcg.id))
-          .filter((c) => isCommander || typesOf(c).includes('Leader'));
+          .filter((c) => isCommander || typesOf(c).includes(slot.type));
         if (input.value.trim() !== q) return;
         setChildren(body, !found.length ? el('p', { class: 'muted' }, tr(isCommander ? 'No commanders found.' : 'No leaders found.')) : [
           el('p', { class: 'muted hint' }, tr('Click a card to make it the {slot}.', { slot: slotName(slot) })),
@@ -2387,7 +2460,7 @@ function showPrices(tcg, card) {
 
   const money = (p) => (p.value == null ? '—'
     : new Intl.NumberFormat(i18n.lang, { style: 'currency', currency: p.currency }).format(p.value));
-  window.tcg.getPrices({ id: card.id, tcg: tcg.id, localId: card.local_id }).then((versions) => {
+  window.tcg.getPrices({ id: card.id, tcg: tcg.id, localId: card.local_id, name: card.name }).then((versions) => {
     if (!versions.length) {
       setChildren(body, el('p', { class: 'muted' }, tr('There are no prices for this card yet.')));
       return;

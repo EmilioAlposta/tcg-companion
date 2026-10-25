@@ -4,6 +4,8 @@
 const { fetchCardPricing } = require('./pokemon-api');
 const onePiece = require('./onepiece-api');
 const magic = require('./magic-api');
+const yugioh = require('./yugioh-api');
+const lorcana = require('./lorcana-api');
 
 const titleCase = (slug) => String(slug).split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -47,7 +49,7 @@ async function magicPrices(cardId) {
 // One Piece (OPTCG API): cada versión (normal, parallel, manga…) es una carta aparte. Se listan todas las del mismo
 // código guardadas en la base de datos, con el precio actual de la API si responde (si no, el de la última descarga).
 async function onePiecePrices(db, cardId, code) {
-  const stored = db.onePiecePrintings(code);
+  const stored = db.catalogPrintings('onepiece', cardId, code);
   const live = new Map();
   try {
     for (const c of await onePiece.fetchCardVersions(code)) live.set(c.card_image, c);
@@ -66,9 +68,39 @@ async function onePiecePrices(db, cardId, code) {
   });
 }
 
-function cardPrices(db, { id, tcg, localId }) {
+// Yu-Gi-Oh! (YGOPRODeck): el precio de cada impresión de la carta (set y rareza) y, de la carta en cualquier
+// impresión, el más barato en TCGplayer (USD) y Cardmarket (EUR).
+async function yugiohPrices(cardId, name) {
+  const card = await yugioh.fetchCard(name);
+  if (!card) return [];
+  const num = (v) => (Number(v) > 0 ? Number(v) : null);
+  const any = card.card_prices?.[0] || {};
+  return [
+    { title: 'Any print', source: 'TCGplayer · Cardmarket', prices: [
+      { label: 'TCGplayer', value: num(any.tcgplayer_price), currency: 'USD' },
+      { label: 'Cardmarket', value: num(any.cardmarket_price), currency: 'EUR' },
+    ] },
+    ...yugioh.toPrintings(card).map((p) => ({
+      title: p.set.name, subtitle: [p.localId, p.rarity].filter(Boolean).join(' · '), current: p.id === cardId,
+      source: 'YGOPRODeck', prices: [{ label: 'Market', value: p.market_price ?? null, currency: 'USD' }],
+    })),
+  ];
+}
+
+// Lorcana (Lorcast): precio de TCGplayer de la carta normal y de la foil.
+async function lorcanaPrices(cardId) {
+  const card = await lorcana.fetchCard(cardId);
+  const num = (v) => (v == null ? null : Number(v));
+  return [['Normal', 'usd'], ['Foil', 'usd_foil']].filter(([, k]) => card?.prices && k in card.prices).map(([title, k]) => ({
+    title, source: 'TCGplayer', prices: [{ label: 'Market', value: num(card.prices[k]), currency: 'USD' }],
+  }));
+}
+
+function cardPrices(db, { id, tcg, localId, name }) {
   if (tcg === 'magic') return magicPrices(id);
   if (tcg === 'onepiece') return onePiecePrices(db, id, localId);
+  if (tcg === 'yugioh') return yugiohPrices(id, name);
+  if (tcg === 'lorcana') return lorcanaPrices(id);
   return pokemonPrices(id);
 }
 

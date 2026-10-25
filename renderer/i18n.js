@@ -42,6 +42,8 @@ const i18n = (() => {
     'Only the active formats are offered when you create a deck. Decks you already have keep their format.':
       'Al crear un mazo solo se ofrecen los formatos activos. Los mazos que ya tienes conservan su formato.',
     'Show the Pokédex next to your collections.': 'Muestra la Pokédex junto a tus colecciones.',
+    'Show {tcg} in the main menu. If you hide it, your cards and decks are kept.':
+      'Muestra {tcg} en el menú principal. Si lo ocultas, tus cartas y mazos se conservan.',
     'Cards to include in your Pokédex collection': 'Cartas que incluir en tu colección de la Pokédex',
     'Which cards of each Pokémon count. Turn on all three to count any card.':
       'Qué cartas de cada Pokémon cuentan. Activa las tres para contar cualquier carta.',
@@ -70,8 +72,8 @@ const i18n = (() => {
 
     // Colecciones de un TCG y buscador
     'Loading…': 'Cargando…',
-    'Loading… (the first time it downloads every One Piece card, this takes a few seconds)':
-      'Cargando… (la primera vez descarga todas las cartas de One Piece, tarda unos segundos)',
+    'Loading… (the first time it downloads every {tcg} card, this takes a few seconds)':
+      'Cargando… (la primera vez descarga todas las cartas de {tcg}, tarda unos segundos)',
     'Could not download the cards. Are you connected to the internet?': 'No se pudieron descargar las cartas. ¿Tienes conexión a internet?',
     'Retry': 'Reintentar',
     '{owned} / {total} Pokémon collected': '{owned} / {total} Pokémon conseguidos',
@@ -147,6 +149,8 @@ const i18n = (() => {
     'Frame / Art': 'Marco / arte',
     'Set': 'Set',
     'Standard': 'Estándar',
+    'Subtype': 'Subtipo',
+    'Ink': 'Tinta',
     'Alternate art': 'Arte alternativo',
     'Regular': 'Normal',
     'Borderless': 'Sin bordes',
@@ -184,6 +188,7 @@ const i18n = (() => {
     'Cards I am missing': 'Las que me faltan',
     'Versions (non-foil, foil, etched)': 'Versiones (non-foil, foil, etched)',
     'Versions (normal, holo, reverse holo, stamped…)': 'Versiones (normal, holo, reverse holo, con sello…)',
+    'Versions (normal, foil)': 'Versiones (normal, foil)',
     'Each missing version': 'Cada versión que falta',
     'Only cards with no copies': 'Solo cartas sin ninguna copia',
     'Format': 'Formato',
@@ -244,18 +249,24 @@ const i18n = (() => {
     'Commanders': 'Comandantes',
     'Leader': 'Líder',
     'Leaders': 'Líderes',
+    'Advanced': 'Advanced',
+    'Core Constructed': 'Core Constructed',
+    'Infinity Constructed': 'Infinity Constructed',
     '100 cards including the commander, one copy of each card (basic lands aside), all in the commander\'s colors.':
       '100 cartas contando el comandante, una copia de cada carta (salvo las tierras básicas), todas de los colores del comandante.',
     '1 leader plus {size} cards, up to {max} copies of each card, all in the leader\'s colors.':
       '1 líder más {size} cartas, hasta {max} copias de cada carta, todas de los colores del líder.',
     '1 leader, all in the leader\'s colors.': '1 líder, y todas las cartas de los colores del líder.',
+    'At least {min} cards, up to {max} copies of each card. Card legality comes from {source}.':
+      'Al menos {min} cartas, hasta {max} copias de cada carta. La legalidad de las cartas viene de {source}.',
+    'At least {min} cards, up to {max} copies of each card.': 'Al menos {min} cartas, hasta {max} copias de cada carta.',
     '{size} cards, up to {max} copies of each card (basic Energy aside).':
       '{size} cartas, hasta {max} copias de cada carta (salvo la Energía básica).',
     'At least {min} cards, up to {max} copies of each card (basic lands aside). Card legality comes from Scryfall.':
       'Al menos {min} cartas, hasta {max} copias de cada carta (salvo las tierras básicas). La legalidad de las cartas viene de Scryfall.',
     'No deck-building rules: any cards, any number of copies.': 'Sin reglas de construcción: cualquier carta, cualquier número de copias.',
     '{list} and {n} more': '{list} y {n} más',
-    'Choose a {slot}.': 'Elige un {slot}.',
+    'Choose a {slot}.': 'Falta elegir: {slot}.',
     'The deck needs exactly {size} cards including the commander: it has {total}.':
       'El mazo necesita exactamente {size} cartas contando el comandante: tiene {total}.',
     'The deck needs exactly {size} cards plus the leader: it has {total}.':
@@ -337,9 +348,15 @@ const i18n = (() => {
     'Characters': 'Personajes',
     'Events': 'Eventos',
     'Stages': 'Escenarios',
+    'Monsters': 'Monstruos',
+    'Spells': 'Mágicas',
+    'Traps': 'Trampas',
+    'Actions': 'Acciones',
+    'Songs': 'Canciones',
+    'Items': 'Objetos',
+    'Locations': 'Lugares',
     'Other': 'Otras',
-    'This card is the deck\'s leader': 'Esta carta es el líder del mazo',
-    'This card is the deck\'s commander': 'Esta carta es el comandante del mazo',
+    "This card is the deck's {slot}": 'Esta carta hace de {slot} en el mazo',
     'Click to add a copy to the deck': 'Clic para agregar una copia al mazo',
     '×{n} in deck': '×{n} en el mazo',
     'Click a card (or +) to add a copy, − to take one out. Your collection does not change.':
@@ -351,10 +368,10 @@ const i18n = (() => {
     'Click a card to mark whether you own it in this deck: your collection does not change. Hover over it and use − / + to change the copies, or ⋮ for the deck cover and more.':
       'Haz clic en una carta para marcar si la tienes en este mazo: tu colección no cambia. Pasa el ratón por encima y usa − / + para cambiar las copias, o ⋮ para la portada del mazo y más.',
     'Search commanders, e.g. Atraxa': 'Busca comandantes, p. ej. Atraxa',
-    'Search leaders, e.g. Luffy': 'Busca líderes, p. ej. Luffy',
+    'Search leaders, e.g. {example}': 'Busca líderes, p. ej. {example}',
     'No commanders found.': 'No se encontraron comandantes.',
     'No leaders found.': 'No se encontraron líderes.',
-    'Click a card to make it the {slot}.': 'Haz clic en una carta para que sea el {slot}.',
+    'Click a card to make it the {slot}.': 'Haz clic en una carta para elegirla como {slot}.',
     'Close': 'Cerrar',
 
     // Menú ⋮ y cartas
@@ -388,6 +405,7 @@ const i18n = (() => {
     'The highlighted one is this card.': 'La resaltada es esta carta.',
     'Could not load the prices: {error}': 'No se pudieron cargar los precios: {error}',
     'Market': 'Mercado',
+    'Any print': 'Cualquier impresión',
     'Low': 'Mínimo',
     'Mid': 'Medio',
     'High': 'Máximo',

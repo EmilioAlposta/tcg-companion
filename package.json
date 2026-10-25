@@ -2,7 +2,7 @@
   "name": "tcg-companion",
   "productName": "TCG Companion",
   "version": "0.1.0",
-  "description": "Gestor de colecciones de cartas TCG (Pokémon, Magic, One Piece)",
+  "description": "Gestor de colecciones de cartas TCG (Pokémon, Magic, One Piece, Yu-Gi-Oh!, Lorcana)",
   "main": "main.js",
   "author": "Emilio",
   "license": "MIT",

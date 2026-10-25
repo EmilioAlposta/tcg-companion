@@ -71,6 +71,15 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .home-item.small { height: 62px; }
 .home-item.sel { width: 100%; height: 128px; transform: none; }
 .home-item.small.sel { height: 84px; }
+/* Con muchos TCG a la vista las franjas son más bajas, para que quepan todas sin hacer scroll */
+.home-list.many { gap: 6px; padding: 14px 0 18px; }
+.home-list.many .home-item { height: 46px; }
+.home-list.many .home-item.small { height: 42px; }
+.home-list.many .home-item.sel { height: 96px; }
+.home-list.many .home-item.small.sel { height: 64px; }
+.home-list.many .home-title { font-size: 30px; }
+.home-list.many .home-item.small .home-title { font-size: 24px; }
+.home-list.many .home-item:not(.sel) .home-sub { font-size: 12px; }
 .home-item.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 10px; background: var(--accent); z-index: 2; }
 /* El arte va a la derecha de la franja y se funde con el color del TCG */
 .home-bg {
@@ -134,7 +143,7 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .home-pv-toggle::after { content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
 .home-pv-toggle.on { background: var(--ok); }
 .home-pv-toggle.on::after { left: auto; right: 3px; }
-.home-pv-tcgs { display: flex; gap: 6px; }
+.home-pv-tcgs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 220px; }
 .home-pv-tcgs b { padding: 3px 8px; border-radius: 4px; font-size: 11px; background: var(--c); }
 .home-pv-tcgs b.off { background: #ffffff14; color: var(--muted); text-decoration: line-through; }
 .home-pv-foot { margin-top: 12px; color: var(--muted); font-size: 12px; }
@@ -466,6 +475,9 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 }
 .dropdown-trigger:hover, .dropdown-trigger.open { border-color: var(--accent); }
 .dropdown-trigger.has-value { border-color: #ffcb0599; background: #ffcb0512; }
+/* En un formulario (p. ej. el diálogo de mazo) el campo siempre tiene valor: sin el resaltado de filtro aplicado */
+.dropdown-trigger.field.has-value { border-color: #ffffff33; background: var(--bg); }
+.dropdown-trigger.field:hover, .dropdown-trigger.field.open { border-color: var(--accent); }
 .filter-number {
   display: flex; align-items: center; width: 100%;
   background: var(--bg); border: 1px solid #ffffff33; border-radius: 8px; overflow: hidden;
@@ -599,7 +611,7 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
   background: var(--panel); border: 1px solid #ffffff14; border-radius: 12px; padding: 10px 18px;
 }
 .settings-tcg img { width: 36px; height: 36px; }
-.settings-tcg-name { flex: 1; font-weight: 600; }
+.settings-tcg-name { flex: 1; min-width: 0; }
 .settings-tcg-note { font-size: 12px; }
 .settings-tcg.off img, .settings-tcg.off .settings-tcg-name { opacity: .45; }
 .settings-tcgs { gap: 18px; }
@@ -653,6 +665,8 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .dialog .deck-dialog-error { margin: 4px 0 10px; font-size: 13px; min-height: 0; }
 .dialog .deck-dialog-error:empty { display: none; }
 .dialog .export-groups { margin-top: 12px; }
+.deck-dialog-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.deck-dialog-fields.single { grid-template-columns: minmax(0, 1fr); }
 .export-group .chips { flex-wrap: wrap; }
 
 /* Vista de un mazo */
