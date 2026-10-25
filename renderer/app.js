@@ -48,7 +48,6 @@ const TCGS = [
 const view = document.getElementById('view');
 const backBtn = document.getElementById('back');
 const breadcrumb = document.getElementById('breadcrumb');
-const dataSource = document.getElementById('data-source');
 const modal = document.getElementById('modal');
 const modalImg = document.getElementById('modal-img');
 
@@ -70,7 +69,6 @@ backBtn.addEventListener('click', () => {
 
 function setChrome(crumb, tcg) {
   breadcrumb.textContent = crumb;
-  dataSource.textContent = tcg ? tcg.source : visibleTcgs().map((t) => t.source).join(' · ');
   backBtn.classList.toggle('hidden', navStack.length < 2);
 }
 
@@ -78,8 +76,6 @@ function setChrome(crumb, tcg) {
 function renderStaticTexts() {
   document.documentElement.lang = i18n.lang;
   backBtn.title = tr('Back');
-  document.getElementById('data-source-label').textContent = tr('Card data:');
-  document.getElementById('db-path').title = tr('Show the database in the file explorer');
 }
 
 // ---------- TCGs ocultos (Settings) ----------
@@ -365,7 +361,8 @@ function showHome() {
   const renderItem = (item, i) => el('button', {
     class: 'home-item' + (item.small ? ' small' : '') + (i === selected ? ' sel' : ''),
     style: `--c: ${item.color}; animation-delay: ${i * 0.05}s`,
-    onmouseenter: () => select(i),
+    // Solo con ratón: en pantallas táctiles el toque abre directamente, sin pasar por la selección.
+    onpointerenter: (e) => { if (e.pointerType === 'mouse') select(i); },
     onclick: item.open,
   },
     background(item), el('div', { class: 'home-glow' }),
@@ -393,6 +390,7 @@ function showHome() {
   renderList();
   renderPreview(false);
   list.classList.toggle('many', visibleTcgs().length > 4);
+  list.style.setProperty('--n', visibleTcgs().length); // filas de TCG del menú en el móvil (mobile.css)
   setChildren(view, el('div', { class: 'home' }, list, pv));
 
   // Los datos llegan después: la pantalla se pinta sin esperar a la base de datos.
@@ -2987,13 +2985,6 @@ function openModal(card) {
 modal.addEventListener('click', () => modal.classList.add('hidden'));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modal.classList.add('hidden'); });
 
-// ---------- Pie: ruta de la base de datos ----------
-(async () => {
-  const dbBtn = document.getElementById('db-path');
-  dbBtn.textContent = `DB: ${await window.tcg.dbPath()}`;
-  dbBtn.addEventListener('click', () => window.tcg.revealDb());
-})();
-
 // ---------- Sonidos ----------
 // Cualquier botón suena con un "clic"; los que tienen sonido propio (abrir, marcar una carta…) ya sonaron
 // en su manejador y sfx ignora este segundo efecto.
@@ -3003,8 +2994,10 @@ document.addEventListener('click', (e) => {
 });
 
 // "Tic" suave al pasar el ratón por una carta o una casilla de la cuadrícula (solo al entrar, no al moverse dentro).
+// Con el dedo no hay "pasar por encima": el toque ya suena con el clic.
 const HOVER_TARGETS = '.card, .home-item, .collection-item, .set-tile, .dex-tile:not(.disabled), .deck-tile';
-document.addEventListener('mouseover', (e) => {
+document.addEventListener('pointerover', (e) => {
+  if (e.pointerType !== 'mouse') return;
   const target = e.target.closest?.(HOVER_TARGETS);
   if (target && !target.contains(e.relatedTarget)) sfx.play('hover');
 });

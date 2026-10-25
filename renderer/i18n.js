@@ -9,8 +9,6 @@ const i18n = (() => {
   const ES = {
     // Cabecera, pie y menú principal
     'Back': 'Volver',
-    'Card data:': 'Datos de cartas:',
-    'Show the database in the file explorer': 'Mostrar la base de datos en el explorador de archivos',
     '{list} and {last}': '{list} y {last}',
     'Choose your TCG': 'Elige tu TCG',
     'My decks': 'Mis mazos',

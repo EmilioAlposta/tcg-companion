@@ -135,7 +135,7 @@ npm start
 
 - **Clic** en una carta: la marca como conseguida. Otro clic la desmarca.
 - **Doble clic** en una carta: la muestra en grande.
-- La ruta de la base de datos aparece en el pie de la app. Si haces clic en ella, se abre la carpeta en el explorador.
+- La base de datos se guarda en `%APPDATA%\TCG Companion\tcg-companion.sqlite`.
 
 ### Crear el instalador de Windows
 
@@ -144,6 +144,23 @@ npm run dist
 ```
 
 Genera un instalador `.exe` en `dist/`.
+
+### Versión Android
+
+La app de Android usa la misma interfaz y el mismo código que la de escritorio, empaquetados con [Capacitor](https://capacitorjs.com/). Funciona sin la PC y tiene **su propia base de datos** en el celular: lo que marques en uno no aparece en el otro.
+
+Para compilarla necesitas el JDK 21 y el SDK de Android (con Android Studio o sueltos):
+
+```bash
+npm run mobile:apk
+```
+
+Genera `mobile/android/app/build/outputs/apk/debug/app-debug.apk`, que se instala copiándolo al celular (hay que permitir *instalar apps desconocidas*).
+
+- `npm run mobile:serve` abre la versión móvil en `http://localhost:5174` para probarla en el navegador del PC (en modo móvil de las herramientas de desarrollo).
+- `npm run mobile:icons` vuelve a generar el ícono y la pantalla de carga si cambia el logo.
+- Lo propio del móvil está en `mobile/`: los sustitutos de Electron y Node (`mobile/shims/`) y los estilos de pantalla pequeña (`mobile/mobile.css`). Los ficheros de escritorio no se tocan.
+- En el celular, exportar abre el menú de compartir de Android (Drive, WhatsApp, Archivos…) y el botón Atrás de Android cierra diálogos y vuelve a la pantalla anterior.
 
 ## Stack
 
@@ -174,6 +191,7 @@ Genera un instalador `.exe` en `dist/`.
 │   └── pokedex-sync.js     Sincronización de la Pokédex y precios
 ├── assets/                 Icono de la app, dorso y logo de cada TCG
 ├── scripts/make-icons.js   Genera icon.png / icon.ico desde el logo
+├── mobile/                 App de Android (Capacitor): build, shims, mobile.css y proyecto Android
 └── docs/                   Logo y capturas del README
 ```
 

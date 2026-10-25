@@ -114,7 +114,6 @@ async function searchPokemonCards(name, keep = () => true) {
 }
 
 function registerIpc() {
-  ipcMain.handle('db:path', () => db.filePath);
   ipcMain.handle('home:stats', () => db.getHomeStats());
   ipcMain.handle('collections:list', async (_e, tcg, { refreshSets = false } = {}) => {
     // La lista de sets se descarga la primera vez; sin conexión seguimos con lo que haya.
@@ -204,7 +203,6 @@ function registerIpc() {
   });
   // Precios actuales de las versiones de una carta (diálogo "View price").
   ipcMain.handle('card:prices', (_e, card) => cardPrices(db, card));
-  ipcMain.handle('db:reveal', () => shell.showItemInFolder(db.filePath));
   ipcMain.handle('card:setHidden', (_e, collectionId, cardId, hidden) => {
     db.setHidden(collectionId, cardId, !!hidden);
     return true;

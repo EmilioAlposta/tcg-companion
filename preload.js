@@ -1,8 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('tcg', {
-  dbPath: () => ipcRenderer.invoke('db:path'),
-  revealDb: () => ipcRenderer.invoke('db:reveal'),
   homeStats: () => ipcRenderer.invoke('home:stats'),
   listCollections: (tcg, opts) => ipcRenderer.invoke('collections:list', tcg, opts),
   getCollection: (id, opts) => ipcRenderer.invoke('collection:get', id, opts),

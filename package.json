@@ -9,7 +9,11 @@
   "scripts": {
     "start": "electron .",
     "icons": "node scripts/make-icons.js",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "mobile:build": "node mobile/build.js && cap sync android",
+    "mobile:serve": "node mobile/build.js && node mobile/serve.js",
+    "mobile:icons": "node mobile/make-icons.js",
+    "mobile:apk": "npm run mobile:build && cd mobile/android && gradlew.bat assembleDebug"
   },
   "build": {
     "appId": "com.tcgcompanion.app",
@@ -35,8 +39,18 @@
     "sql.js": "^1.15.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "buffer": "^6.0.3",
     "electron": "^44.9.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
     "png-to-ico": "^3.0.2",
     "sharp": "^0.35.5"
   }
