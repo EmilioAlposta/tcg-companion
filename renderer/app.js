@@ -355,21 +355,39 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- Settings ----------
+// Una sola página con todos los ajustes, con el estilo de las opciones de un juego de lucha: rótulos inclinados,
+// valores que se cambian con ◀ ▶ y un banner diagonal del color de cada TCG con sus opciones debajo.
 function showSettings() {
   setChrome(tr('Settings'));
-  // Cada ajuste: título, explicación y, a la derecha, sus opciones.
-  const row = (title, text, control) => el('div', { class: 'settings-row' },
+  // Cada ajuste: título, explicación (extra: más texto debajo) y, a la derecha, su control.
+  const row = (title, text, control, extra = null) => el('div', { class: 'settings-row' + (extra ? ' stacked' : '') },
     el('div', { class: 'settings-text' },
-      el('div', { class: 'settings-title' }, title),
-      el('div', { class: 'collection-meta' }, text)),
+      el('div', { class: 'settings-title home-display' }, title),
+      el('div', { class: 'collection-meta' }, text),
+      extra),
     control);
-  const chips = (options, active, onPick) => el('div', { class: 'chips' },
-    options.map(([value, label]) => optionChip(label, value === active, () => onPick(value))));
+
+  // Valor que se cambia con las flechas ◀ ▶ (da la vuelta al llegar al final).
+  const cycler = (options, active, onPick) => {
+    const i = Math.max(0, options.findIndex(([value]) => value === active));
+    const step = (delta) => { sfx.play('check'); onPick(options[(i + delta + options.length) % options.length][0]); };
+    return el('div', { class: 'settings-cycler home-display' },
+      el('button', { class: 'settings-arrow', type: 'button', title: tr('Previous option'), onclick: () => step(-1) }, '◀'),
+      el('span', { class: 'settings-value' }, options[i][1]),
+      el('button', { class: 'settings-arrow', type: 'button', title: tr('Next option'), onclick: () => step(1) }, '▶'));
+  };
+
+  // Dos opciones fijas una al lado de la otra (Show | Hide); la elegida, en amarillo.
+  const segment = (options, active, onPick) => el('div', { class: 'settings-segment home-display' },
+    options.map(([value, label]) => el('button', {
+      class: value === active ? 'active' : '', type: 'button',
+      onclick: () => { sfx.play('check'); if (value !== active) onPick(value); },
+    }, label)));
 
   // Opciones que se pueden activar varias a la vez (siempre queda al menos una activa).
   const toggles = (options, isOn, onToggle) => {
     const active = options.filter(([value]) => isOn(value)).length;
-    return el('div', { class: 'chips' }, options.map(([value, label]) => {
+    return el('div', { class: 'chips settings-chips' }, options.map(([value, label]) => {
       const on = isOn(value);
       return optionChip(label, on, () => {
         if (on && active === 1) return;
@@ -379,72 +397,68 @@ function showSettings() {
     }));
   };
 
-  // Un bloque por TCG: mostrarlo u ocultarlo y, si se muestra, sus opciones (formatos de mazo, Pokédex…).
-  const tcgRows = TCGS.filter((t) => t.enabled).map((t) => {
+  // Un bloque por TCG: su banner y, debajo, mostrarlo u ocultarlo y, si se muestra, sus opciones (formatos, Pokédex…).
+  const tcgBlocks = TCGS.filter((t) => t.enabled).map((t) => {
     const shown = !hiddenTcgs.has(t.id);
     // Siempre queda al menos un TCG a la vista.
     const last = shown && visibleTcgs().length === 1;
-    const head = el('div', { class: 'settings-tcg' + (shown ? '' : ' off') },
+    const banner = el('div', { class: 'settings-banner' + (shown ? '' : ' off') },
       el('img', { src: t.logo, alt: '' }),
-      el('div', { class: 'settings-tcg-name' },
-        el('div', { class: 'settings-title' }, t.name),
-        el('div', { class: 'collection-meta' }, tr('Show {tcg} in the main menu. If you hide it, your cards and decks are kept.', { tcg: t.short }))),
-      last ? el('span', { class: 'muted settings-tcg-note' }, tr('At least one TCG stays visible')) : null,
-      chips([[true, tr('Show')], [false, tr('Hide')]], shown, (v) => {
-        if (v === shown || last) return;
-        hiddenTcgs.set(t.id, !v);
-        showSettings();
-      }));
-    if (!shown) return el('div', { class: 'settings-tcg-block off', style: `--c: ${t.color}` }, head);
-
+      el('span', { class: 'settings-banner-name home-display' }, t.name),
+      shown ? null : el('span', { class: 'settings-banner-state home-display' }, tr('Hidden')));
     const options = [
-      el('div', { class: 'settings-row stacked' },
-        el('div', { class: 'settings-text' },
-          el('div', { class: 'settings-title' }, tr('Deck formats')),
-          el('div', { class: 'collection-meta' }, tr('Only the active formats are offered when you create a deck. Decks you already have keep their format.'))),
-        toggles(DECK_FORMATS[t.id].map((f) => [f.id, fmtName(f)]), (id) => tcgPrefs.formatOn(t.id, id),
-          (id, on) => tcgPrefs.setFormat(t.id, id, on))),
+      row(tr('Main menu'),
+        [tr('Show {tcg} in the main menu. If you hide it, your cards and decks are kept.', { tcg: t.short }),
+          last ? ` ${tr('At least one TCG stays visible')}.` : ''].join(''),
+        segment([[true, tr('Show')], [false, tr('Hide')]], shown, (v) => {
+          if (last) return;
+          hiddenTcgs.set(t.id, !v);
+          showSettings();
+        })),
     ];
-    if (t.id === 'pokemon') {
+    if (shown) {
+      options.push(row(tr('Deck formats'),
+        tr('Only the active formats are offered when you create a deck. Decks you already have keep their format.'), null,
+        toggles(DECK_FORMATS[t.id].map((f) => [f.id, fmtName(f)]), (id) => tcgPrefs.formatOn(t.id, id),
+          (id, on) => tcgPrefs.setFormat(t.id, id, on))));
+    }
+    if (shown && t.id === 'pokemon') {
       options.push(row(tr('Pokédex'), tr('Show the Pokédex next to your collections.'),
-        chips([[true, tr('Show')], [false, tr('Hide')]], tcgPrefs.pokedexShown, (v) => {
+        segment([[true, tr('Show')], [false, tr('Hide')]], tcgPrefs.pokedexShown, (v) => {
           tcgPrefs.setPokedexShown(v);
           showSettings();
         })));
       if (tcgPrefs.pokedexShown) {
-        options.push(el('div', { class: 'settings-row stacked' },
-          el('div', { class: 'settings-text' },
-            el('div', { class: 'settings-title' }, tr('Cards to include in your Pokédex collection')),
-            el('div', { class: 'collection-meta' }, tr('Which cards of each Pokémon count. Turn on all three to count any card.')),
-            el('ul', { class: 'collection-meta settings-list' },
-              DEX_KINDS.map((k) => el('li', {}, el('b', {}, tr(k.label)), `: ${tr(k.help)}`)))),
+        options.push(row(tr('Cards to include in your Pokédex collection'),
+          tr('Which cards of each Pokémon count. Turn on all three to count any card.'), null,
+          [el('ul', { class: 'collection-meta settings-list' },
+            DEX_KINDS.map((k) => el('li', {}, el('b', {}, tr(k.label)), `: ${tr(k.help)}`))),
           toggles(DEX_KINDS.map((k) => [k.id, tr(k.label)]), (k) => tcgPrefs.pokedexKinds.includes(k),
-            (k, on) => tcgPrefs.setPokedexKinds(on ? [...tcgPrefs.pokedexKinds, k] : tcgPrefs.pokedexKinds.filter((x) => x !== k)))));
+            (k, on) => tcgPrefs.setPokedexKinds(on ? [...tcgPrefs.pokedexKinds, k] : tcgPrefs.pokedexKinds.filter((x) => x !== k)))]));
       }
     }
-    return el('div', { class: 'settings-tcg-block', style: `--c: ${t.color}` }, head, el('div', { class: 'settings-tcg-options' }, options));
+    return el('div', { class: 'settings-tcg-block', style: `--c: ${t.color}` }, banner, el('div', { class: 'settings-tcg-options' }, options));
   });
 
-  setChildren(view, el('div', { class: 'settings-page' },
-    el('h1', { class: 'title' }, tr('Settings')),
+  setChildren(view, el('div', { class: 'settings-screen' }, el('div', { class: 'settings-page' },
+    el('h1', { class: 'settings-heading home-display' }, tr('Settings')),
     el('section', { class: 'settings-section' },
-      el('h2', { class: 'section-title' }, tr('General')),
+      el('h2', { class: 'settings-tag home-display' }, tr('General')),
       row(tr('Sound effects'), tr('Sounds when browsing, marking cards and using filters.'),
-        chips([[true, tr('On')], [false, tr('Off')]], !sfx.muted, (on) => {
+        cycler([[true, tr('On')], [false, tr('Off')]], !sfx.muted, (on) => {
           sfx.setMuted(!on);
           sfx.play('add');
           showSettings();
         })),
       row(tr('Language'), tr('Language of the app. Card names and card data stay as the source gives them.'),
-        chips([['en', 'English'], ['es', 'Español']], i18n.lang, (lang) => {
+        cycler([['en', 'English'], ['es', 'Español']], i18n.lang, (lang) => {
           i18n.setLang(lang);
           renderStaticTexts();
           showSettings();
         }))),
     el('section', { class: 'settings-section' },
-      el('h2', { class: 'section-title' }, tr('TCGs')),
-      el('p', { class: 'muted hint' }, tr('Hide the TCGs you do not collect: they disappear from the main menu. Your cards and decks are kept.')),
-      el('div', { class: 'settings-tcgs' }, tcgRows))));
+      el('h2', { class: 'settings-tag home-display' }, tr('TCGs')),
+      el('div', { class: 'settings-tcgs' }, tcgBlocks)))));
 }
 
 const tcgById = (id) => TCGS.find((t) => t.id === id) || TCGS[0];

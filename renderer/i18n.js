@@ -64,8 +64,10 @@ const i18n = (() => {
     'Language of the app. Card names and card data stay as the source gives them.':
       'Idioma de la app. Los nombres y datos de las cartas se muestran tal como los da cada fuente.',
     'TCGs': 'TCG',
-    'Hide the TCGs you do not collect: they disappear from the main menu. Your cards and decks are kept.':
-      'Oculta los TCG que no coleccionas: desaparecen del menú principal. Tus cartas y mazos se conservan.',
+    'Main menu': 'Menú principal',
+    'Hidden': 'Oculto',
+    'Previous option': 'Opción anterior',
+    'Next option': 'Opción siguiente',
     'Show': 'Mostrar',
     'Hide': 'Ocultar',
     'At least one TCG stays visible': 'Al menos un TCG queda visible',
