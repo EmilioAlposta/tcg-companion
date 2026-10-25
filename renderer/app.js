@@ -34,7 +34,9 @@ const TCGS = [
     artFrame: 'center 55% / cover',
     cover: 'https://images.ygoprodeck.com/images/cards/46986414.jpg',
     // La imagen de YGOPRODeck lleva un marco gris alrededor y la carta es más estrecha (59 × 86): se amplía para recortarlo.
-    coverFrame: 'center / 107.5% auto', coverRatio: '59 / 86' },
+    coverFrame: 'center / 107.5% auto', coverRatio: '59 / 86',
+    // Lo mismo en las portadas que son <img> (mazos): el marco ocupa un 2,3 % arriba y abajo y un 3,3 % a los lados.
+    imageCrop: 'inset(2.3% 3.3%)' },
   { id: 'lorcana', name: 'Disney Lorcana', short: 'Lorcana', image: '../assets/tcg/lorcana.svg', logo: '../assets/tcg/lorcana-logo.svg', enabled: true, example: 'Elsa', source: 'Lorcast',
     catalog: true, variants: true, versionsLabel: 'Versions (normal, foil)', colorLabel: 'Ink',
     color: '#b03a7a',
@@ -207,6 +209,12 @@ function starIcon() {
 // Fondo con imagen y encuadre ("posición / tamaño"); bajo la imagen, el color del TCG por si no carga.
 const artStyle = (url, frame = 'center / cover', color = '#1d3352') =>
   `background: url("${url}") ${frame} no-repeat, ${color}`;
+// Lo mismo para la imagen completa de una carta, con el encuadre y la proporción de su TCG si tiene uno propio
+// (en Yu-Gi-Oh! se recorta el marco que trae la imagen; ver coverFrame).
+const cardArtStyle = (url, tcgId, color) => {
+  const t = tcgById(tcgId);
+  return artStyle(url, t.coverFrame, color) + (t.coverRatio ? `; aspect-ratio: ${t.coverRatio}` : '');
+};
 
 let homeSelect = null; // (delta) => mueve la selección; null si el menú principal no está en pantalla
 
@@ -222,11 +230,12 @@ function showHome() {
       kind: 'tcg', color: t.color, title: t.short, sub: '', open: () => navigate(showTcg, t),
       bg: () => el('div', { class: 'home-bg', style: artStyle(t.art, t.artFrame, t.color) }),
       preview: () => {
-        const ratio = t.coverRatio ? `; aspect-ratio: ${t.coverRatio}` : '';
-        const card = el('div', { class: 'home-pv-card', style: artStyle(t.cover, t.coverFrame, t.color) + ratio });
+        const card = el('div', { class: 'home-pv-card', style: cardArtStyle(t.cover, t.id, t.color) });
         // Sin conexión no carga el arte: se queda el dorso de siempre.
         const probe = new Image();
-        probe.onerror = () => { card.style.cssText = artStyle(t.image, 'center / cover', t.color) + ratio; };
+        probe.onerror = () => {
+          card.style.cssText = artStyle(t.image, 'center / cover', t.color) + (t.coverRatio ? `; aspect-ratio: ${t.coverRatio}` : '');
+        };
         probe.src = t.cover;
         return card;
       },
@@ -238,7 +247,8 @@ function showHome() {
   let decks = [];
   let stats = null;
 
-  const deckCovers = () => decks.map((d) => deckCover(d, d.cards)).filter((c) => c?.image_url).slice(0, 3);
+  // Portada de los últimos mazos, con el TCG de cada uno (para encuadrar su imagen).
+  const deckCovers = () => decks.map((d) => ({ ...deckCover(d, d.cards), tcg: d.tcg })).filter((c) => c.image_url).slice(0, 3);
   const deckTcgs = () => [...new Set(decks.map((d) => tcgById(d.tcg).short))].join(', ');
   const icon = (item) => {
     if (item.kind === 'settings') return gearIcon('home-gear');
@@ -265,7 +275,7 @@ function showHome() {
       }
       return el('div', { class: 'home-pv-decks' },
         el('div', { class: 'home-pv-fan n' + covers.length },
-          covers.map((c) => el('div', { class: 'home-pv-deck', style: artStyle(cardImage(c.image_url)) }))),
+          covers.map((c) => el('div', { class: 'home-pv-deck', style: cardArtStyle(cardImage(c.image_url), c.tcg) }))),
         el('div', { class: 'home-pv-list' },
           decks.slice(0, 3).map((d) => el('div', {},
             el('span', { class: 'home-pv-name' }, d.name),
@@ -1773,7 +1783,8 @@ function deckTile(deck) {
     el('div', { class: 'deck-tile-bg' }, image ? el('img', { src: image, alt: '', loading: 'lazy' }) : null),
     el('img', { class: 'deck-tcg-badge', src: tcg.logo, alt: tcg.name, title: tcg.name }),
     el('div', { class: 'deck-tile-cover' },
-      image ? el('img', { src: image, alt: cover.name, loading: 'lazy' }) : el('div', { class: 'deck-empty-cover' }, tr('No cards yet'))),
+      image ? el('img', { src: image, alt: cover.name, loading: 'lazy', style: tcg.imageCrop ? `object-view-box: ${tcg.imageCrop}` : '' })
+        : el('div', { class: 'deck-empty-cover' }, tr('No cards yet'))),
     el('div', { class: 'deck-tile-info' },
       el('div', { class: 'set-name' }, deck.name),
       el('div', { class: 'collection-meta' }, `${tcg.name} · ${fmtName(fmt)}`),
