@@ -162,12 +162,72 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .progress.wide { width: 320px; margin-top: 6px; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--ok)); transition: width .25s; }
 
+/* ---------- Pantalla de un TCG ---------- */
+/* Barra lateral fija con las secciones; a la derecha, el buscador y la sección elegida */
+.tcg-layout {
+  display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 28px; align-items: start;
+  transition: grid-template-columns .2s;
+}
+.tcg-nav {
+  position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px;
+  padding-right: 16px; border-right: 1px solid #ffffff14;
+}
+.tcg-nav-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: 20px; font-weight: 800; }
+.tcg-nav-head img { width: 34px; height: 34px; flex-shrink: 0; }
+.tcg-nav-toggle {
+  margin-left: auto; width: 30px; height: 30px; padding: 5px; flex-shrink: 0;
+  border: none; border-radius: 6px; background: none; color: var(--muted);
+}
+.tcg-nav-toggle:hover { background: #ffffff12; color: var(--text); }
+.tcg-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border: none; border-radius: 8px; background: none; text-align: left; font-size: 15px; white-space: nowrap;
+}
+.tcg-nav-item:hover { background: #ffffff12; }
+.tcg-nav-item.active { background: var(--accent); color: #2a2100; font-weight: 700; }
+.tcg-nav-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tcg-nav-toggle .tcg-nav-icon { width: 20px; height: 20px; transition: transform .2s; }
+.tcg-nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tcg-nav-count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tcg-nav-item.active .tcg-nav-count { color: #2a2100b0; }
+.tcg-nav-sep { height: 1px; margin: 10px 4px; background: #ffffff14; }
+/* Plegada: solo los iconos (el nombre de cada sección queda en el title) y el botón para desplegarla */
+.tcg-layout.collapsed { grid-template-columns: 50px minmax(0, 1fr); }
+.tcg-layout.collapsed .tcg-nav { padding-right: 8px; }
+.tcg-layout.collapsed .tcg-nav-head { flex-direction: column; gap: 8px; }
+.tcg-layout.collapsed .tcg-nav-toggle { margin-left: 0; }
+.tcg-layout.collapsed .tcg-nav-toggle .tcg-nav-icon { transform: rotate(180deg); }
+.tcg-layout.collapsed .tcg-nav-label, .tcg-layout.collapsed .tcg-nav-count { display: none; }
+.tcg-layout.collapsed .tcg-nav-item { justify-content: center; padding: 10px 0; }
+.tcg-section-head { margin: 4px 0 14px; flex-wrap: wrap; }
+.tcg-section-head .title { margin: 0; font-size: 22px; }
+/* Sets con cartas: una fila por set con su logo */
+.set-rows { display: flex; flex-direction: column; gap: 8px; }
+.set-row {
+  display: flex; align-items: center; gap: 18px; text-align: left;
+  background: var(--panel); border: 1px solid #ffffff14; border-radius: 12px; padding: 10px 20px 10px 12px;
+  transition: border-color .12s, background .12s;
+}
+.set-row:hover { border-color: var(--accent); background: var(--panel-2); }
+/* Set completo (100 %): reborde dorado, en la fila y en la casilla de Todos los sets */
+.set-row.complete, .set-tile.complete {
+  border: 2px solid #e8b923;
+  box-shadow: 0 0 0 1px #e8b92340, 0 0 14px #e8b92333, inset 0 0 18px #e8b9231a;
+}
+.set-row.complete { padding: 9px 19px 9px 11px; } /* compensa el borde de 2px */
+.set-row.complete:hover, .set-tile.complete:hover { border-color: #ffd75a; }
+.set-row .set-logo { width: 130px; height: 50px; flex-shrink: 0; }
+.set-row .set-logo img { max-height: 50px; max-width: 100%; }
+.set-row-info { flex: 1; min-width: 0; }
+.set-row-info .set-name { font-size: 16px; }
+.set-row-info .collection-meta { margin: 2px 0 6px; font-size: 13px; }
+.set-row .collection-pct { min-width: 76px; text-align: right; }
+
 /* ---------- Colección ---------- */
 .collection-header {
   display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap;
 }
 .collection-header .title { margin-bottom: 4px; }
-.tcg-header { align-items: center; margin-bottom: 16px; }
 .counter { color: var(--muted); }
 /* Dos filas: arriba los botones (notas, actualizar), abajo búsqueda y filtros */
 .toolbar { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
@@ -186,6 +246,8 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .btn-secondary { background: var(--panel-2); box-shadow: inset 0 0 0 1px #ffffff2e; }
 .btn-secondary:hover { filter: none; background: #26406a; }
 .hint { font-size: 13px; margin: 14px 0; }
+/* Aviso de lista vacía dentro de una cuadrícula de cartas: ocupa toda la fila */
+.card-grid > .muted { grid-column: 1 / -1; }
 
 .card-grid {
   display: grid; gap: 18px;
@@ -247,8 +309,6 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .link:hover { color: var(--text); }
 
 /* ---------- Pokédex ---------- */
-.pokedex-item { border-color: #ffcb0555; }
-.wishlist-item { border-color: #ff5c8a55; }
 .section-title { margin: 18px 0 2px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 .search {
   background: var(--panel); border: 1px solid #ffffff22; border-radius: 8px;
@@ -396,7 +456,7 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 .set-name { font-weight: 700; font-size: 14px; }
 .set-tile .collection-meta { margin: 0; font-size: 12px; }
 
-/* Sets de la pantalla principal: tantas columnas como quepan */
+/* Colecciones custom de un TCG: tantas columnas como quepan */
 .collection-grid {
   display: grid; gap: 12px; align-items: start;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

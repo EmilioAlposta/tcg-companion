@@ -227,7 +227,8 @@ function showHome() {
   // Vista previa de la derecha de cada franja; los datos de la base de datos llegan después y la rellenan.
   const items = [
     ...visibleTcgs().map((t) => ({
-      kind: 'tcg', color: t.color, title: t.short, sub: '', open: () => navigate(showTcg, t),
+      // Al entrar a un TCG se empieza siempre por su primera sección (Sets)
+      kind: 'tcg', color: t.color, title: t.short, sub: '', open: () => { tcgStateOf(t).section = 'sets'; navigate(showTcg, t); },
       bg: () => el('div', { class: 'home-bg', style: artStyle(t.art, t.artFrame, t.color) }),
       preview: () => {
         const card = el('div', { class: 'home-pv-card', style: cardArtStyle(t.cover, t.id, t.color) });
@@ -463,71 +464,220 @@ function showSettings() {
 
 const tcgById = (id) => TCGS.find((t) => t.id === id) || TCGS[0];
 
-// ---------- Vista 2: colecciones de un TCG ----------
+// ---------- Vista 2: pantalla de un TCG ----------
+// Barra lateral con las secciones (Sets, Colecciones, Mazos, Pokédex, Wishlist y Todos los sets) y Exportar; a la
+// derecha, la sección elegida. Se recuerda la sección de cada TCG al volver.
+const tcgState = {}; // tcg.id -> { section, sort }
+const tcgStateOf = (tcg) => (tcgState[tcg.id] ||= { section: 'sets', sort: 'recent' });
+
+const SET_SORTS = [
+  ['recent', 'Newest', null], // el orden de la base: del más nuevo al más antiguo
+  ['progress', 'Progress', (a, b) => b.owned / b.total - a.owned / a.total],
+  ['name', 'Name', (a, b) => a.name.localeCompare(b.name)],
+];
+
+// Pestañas de la barra lateral que son pantallas propias (Sets, Colecciones y Mazos son secciones de showTcg).
+// Todo lo que se abre desde ellas (un set, un mazo, el editor de colecciones, un Pokémon) se apila encima.
+const TCG_TABS = new Map([[showTcg, null], [showPokedex, 'pokedex'], [showWishlist, 'wishlist'], [showAllSets, 'allsets']]);
+const onTcgTab = () => TCG_TABS.has(navStack.at(-1)?.[0]);
+
+// Cambia de pestaña sin apilarla, así que "Volver" sale del TCG en vez de recorrerlas. Desde una pantalla abierta
+// encima de una pestaña (un set, un mazo…), primero se quita esa pantalla.
+function switchView(fn, ...args) {
+  sfx.play('click');
+  if (navStack.some(([f]) => TCG_TABS.has(f))) while (!onTcgTab()) navStack.pop();
+  navStack[navStack.length - 1] = [fn, args];
+  fn(...args);
+}
+
+const tcgNavCache = {}; // tcg.id -> últimos contadores, para que la barra no aparezca vacía al cambiar de pantalla
+const tcgNavData = (tcg) => Promise.all([
+  window.tcg.listCollections(tcg.id),
+  tcg.id === 'pokemon' && tcgPrefs.pokedexShown ? window.tcg.pokedexStats(tcgPrefs.pokedexKinds) : null,
+  window.tcg.listDecks().then((all) => all.filter((d) => d.tcg === tcg.id)),
+]).then(([collections, dexStats, decks]) => (tcgNavCache[tcg.id] = { collections, dexStats, decks }));
+
+// Barra lateral de un TCG. active: la sección elegida (o una función que la devuelve). data ({ collections,
+// dexStats, decks }) da los contadores: sin ella (undefined) se piden aquí; null, los pone quien la llama con render.
+// onSection: en la pantalla del TCG, Sets, Colecciones y Mazos cambian sin recargarla.
+function tcgNav(tcg, active, { data, onSection } = {}) {
+  const nav = el('nav', { class: 'tcg-nav' });
+  const current = () => (typeof active === 'function' ? active() : active);
+  const section = (id) => () => {
+    if (onSection) return onSection(id);
+    tcgStateOf(tcg).section = id;
+    switchView(showTcg, tcg);
+  };
+  // La pestaña elegida solo vuelve a abrirse desde una pantalla de encima (un set, un mazo…).
+  // Con la barra plegada solo se ve el icono; el nombre queda en el title.
+  const item = (id, label, count, onClick) =>
+    el('button', { class: 'tcg-nav-item' + (id === current() ? ' active' : ''), title: label,
+      onclick: () => { if (id !== current() || !onTcgTab()) onClick(); } },
+      navIcon(id), el('span', { class: 'tcg-nav-label' }, label),
+      count != null ? el('span', { class: 'tcg-nav-count' }, count) : null);
+  const toggle = el('button', { class: 'tcg-nav-toggle', title: tr('Collapse or expand the menu'), onclick: () => {
+    tcgNavCollapsed.toggle();
+    nav.closest('.tcg-layout')?.classList.toggle('collapsed', tcgNavCollapsed.on);
+  } }, navIcon('toggle'));
+  const render = (d) => {
+    const dex = d?.dexStats;
+    setChildren(nav,
+      el('div', { class: 'tcg-nav-head' }, el('img', { src: tcg.logo, alt: '' }), el('span', { class: 'tcg-nav-label' }, tcg.short), toggle),
+      item('sets', tr('Sets'), d?.collections.filter((c) => !c.custom && c.owned > 0).length, section('sets')),
+      tcg.id === 'pokemon' && tcgPrefs.pokedexShown ? item('pokedex', 'Pokédex',
+        dex?.with_fullart ? formatPct(dex.owned, dex.with_fullart) : null, () => { dexState.scroll = 0; switchView(showPokedex, tcg); }) : null,
+      item('collections', tr('Collections'), d?.collections.filter((c) => c.custom).length, section('collections')),
+      item('decks', tr('Decks'), d?.decks.length, section('decks')),
+      item('wishlist', tr('Wishlist'), wishlist.count(tcg.id), () => switchView(showWishlist, tcg)),
+      el('div', { class: 'tcg-nav-sep' }),
+      item('allsets', tr('All sets'), null, () => { setsState.scroll = 0; switchView(showAllSets, tcg); }),
+      item('export', tr('Export'), null, () => openExportDialog(tcg, null)));
+  };
+  render(data === undefined ? tcgNavCache[tcg.id] : data);
+  if (data === undefined) tcgNavData(tcg).then((d) => { if (nav.isConnected) render(d); }, () => {});
+  return { nav, render };
+}
+
+// Pantalla de un TCG con la barra lateral; devuelve el hueco de la derecha (content) y la barra (nav).
+function tcgShell(tcg, active, opts) {
+  const content = el('div', { class: 'tcg-main' });
+  const nav = tcgNav(tcg, active, opts);
+  setChildren(view, el('div', { class: 'tcg-layout' + (tcgNavCollapsed.on ? ' collapsed' : '') }, nav.nav, content));
+  return { content, nav };
+}
+
+// Barra lateral plegada o no; se recuerda para todos los TCG.
+const tcgNavCollapsed = (() => {
+  const STORAGE_KEY = 'tcg-nav-collapsed';
+  let on = false;
+  try { on = localStorage.getItem(STORAGE_KEY) === '1'; } catch { /* sin almacenamiento: desplegada */ }
+  return {
+    get on() { return on; },
+    toggle() {
+      on = !on;
+      try { localStorage.setItem(STORAGE_KEY, on ? '1' : '0'); } catch { /* no se recuerda, da igual */ }
+    },
+  };
+})();
+
+// Iconos de línea de la barra lateral (24 × 24, sin relleno).
+const NAV_ICONS = {
+  sets: [['polygon', { points: '12 2 2 7 12 12 22 7 12 2' }], ['polyline', { points: '2 17 12 22 22 17' }], ['polyline', { points: '2 12 12 17 22 12' }]],
+  pokedex: [['circle', { cx: 12, cy: 12, r: 10 }], ['line', { x1: 2, y1: 12, x2: 9, y2: 12 }], ['line', { x1: 15, y1: 12, x2: 22, y2: 12 }], ['circle', { cx: 12, cy: 12, r: 3 }]],
+  collections: [['path', { d: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z' }]],
+  decks: [['rect', { x: 9, y: 9, width: 13, height: 13, rx: 2 }], ['path', { d: 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' }]],
+  wishlist: [['polygon', { points: '12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2' }]],
+  allsets: [['rect', { x: 3, y: 3, width: 7, height: 7 }], ['rect', { x: 14, y: 3, width: 7, height: 7 }], ['rect', { x: 14, y: 14, width: 7, height: 7 }], ['rect', { x: 3, y: 14, width: 7, height: 7 }]],
+  export: [['path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }], ['polyline', { points: '7 10 12 15 17 10' }], ['line', { x1: 12, y1: 15, x2: 12, y2: 3 }]],
+  toggle: [['polyline', { points: '11 17 6 12 11 7' }], ['polyline', { points: '18 17 13 12 18 7' }]],
+};
+
+function navIcon(name) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'tcg-nav-icon');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const [tag, attrs] of NAV_ICONS[name]) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    svg.append(node);
+  }
+  return svg;
+}
+
+// Dónde pintar una pantalla abierta desde un TCG (un set, un mazo, el editor de colecciones, un Pokémon): junto a
+// la barra lateral, con la pestaña de la que se vino marcada. Fuera de un TCG (Mis mazos), en toda la ventana.
+function tcgPage() {
+  const tab = navStack.findLast(([fn]) => TCG_TABS.has(fn));
+  if (!tab) return view;
+  const [fn, [tcg]] = tab;
+  return tcgShell(tcg, TCG_TABS.get(fn) || tcgStateOf(tcg).section).content;
+}
+
 async function showTcg(tcg) {
   setChrome(tcg.name, tcg);
-  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }),
+  const state = tcgStateOf(tcg);
+  let render = () => nav.render(null); // mientras carga, solo la barra; después, también la sección
+  const go = (section) => { state.section = section; sfx.play('click'); render(); };
+  const { content: root, nav } = tcgShell(tcg, () => state.section, { data: null, onSection: go });
+  setChildren(root, el('div', { class: 'loading' }, el('div', { class: 'spinner' }),
     el('p', {}, tcg.catalog ? tr('Loading… (the first time it downloads every {tcg} card, this takes a few seconds)', { tcg: tcg.short }) : tr('Loading…'))));
-  let collections, dexStats;
+  let data;
   try {
-    [collections, dexStats] = await Promise.all([
-      window.tcg.listCollections(tcg.id),
-      tcg.id === 'pokemon' && tcgPrefs.pokedexShown ? window.tcg.pokedexStats(tcgPrefs.pokedexKinds) : null,
-    ]);
+    data = await tcgNavData(tcg);
   } catch (err) {
-    setChildren(view,
+    setChildren(root,
       el('p', { class: 'error' }, tr('Could not download the cards. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
       el('button', { class: 'btn', onclick: () => showTcg(tcg) }, tr('Retry')));
     return;
   }
-  const pokedexItem = tcg.id !== 'pokemon' || !tcgPrefs.pokedexShown ? null :
-    el('button', { class: 'collection-item pokedex-item', onclick: () => navigate(showPokedex, tcg) },
-      itemHeader('Pokédex', dexStats?.owned, dexStats?.with_fullart),
-      el('div', { class: 'collection-meta' },
-        dexStats ? tr('{owned} / {total} Pokémon collected', { owned: dexStats.owned, total: dexStats.with_fullart })
-                 : tr('Not downloaded yet')),
-      dexStats ? progressBar(dexStats.owned, dexStats.with_fullart) : null);
+  const { decks } = data;
+  const activeSets = () => data.collections.filter((c) => !c.custom && c.owned > 0);
+  const customs = () => data.collections.filter((c) => c.custom);
+  const content = el('div', { class: 'tcg-section' });
 
-  // Solo se muestran los sets en los que ya tienes alguna carta; todos, desde "View sets".
-  // Las colecciones custom van junto a la Pokédex, siempre visibles aunque no tengan cartas.
-  const setGrid = el('div', { class: 'collection-grid' });
-  const customGrid = el('div', { class: 'collection-grid' });
-  // La wishlist solo aparece si tiene cartas (se le añaden desde el ⋮ de cualquier carta).
-  const wishCount = wishlist.count(tcg.id);
-  const wishlistItem = !wishCount ? null :
-    el('button', { class: 'collection-item wishlist-item', onclick: () => navigate(showWishlist, tcg) },
-      itemHeader(`✦ ${tr('Wishlist')}`),
-      el('div', { class: 'collection-meta' }, tr(wishCount === 1 ? '{n} card' : '{n} cards', { n: wishCount })));
+  const sectionHead = (title, ...actions) =>
+    el('div', { class: 'section-head tcg-section-head' }, el('h1', { class: 'title' }, title), el('div', { class: 'toolbar-row' }, actions));
 
-  const renderSets = (cols) => {
-    setChildren(customGrid, wishlistItem, pokedexItem, ...cols.filter((c) => c.custom).map((c) => collectionItem(tcg, c)));
-    const active = cols.filter((c) => !c.custom && c.owned > 0);
-    setChildren(setGrid, ...active.map((c) => collectionItem(tcg, c)));
-    if (!active.length) setGrid.append(el('p', { class: 'muted' },
-      tr('No sets with cards yet. Search for a card above or use View sets to open a set.')));
-    if (!cols.some((c) => c.custom)) customGrid.append(el('p', { class: 'muted' },
-      tr('No collections yet. Use Create collection to group cards from any set.')));
+  const renderSets = () => {
+    const sorter = SET_SORTS.find(([id]) => id === state.sort)?.[2];
+    const list = sorter ? [...activeSets()].sort(sorter) : activeSets();
+    return [
+      sectionHead(tr('Sets with cards'),
+        list.length > 1 ? el('div', { class: 'chips' }, SET_SORTS.map(([id, label]) =>
+          optionChip(tr(label), state.sort === id, () => { state.sort = id; render(); }))) : null,
+        el('button', { class: 'btn btn-secondary', onclick: () => { setsState.scroll = 0; switchView(showAllSets, tcg); } }, tr('View sets'))),
+      list.length ? el('div', { class: 'set-rows' }, list.map((c) => setRow(tcg, c)))
+        : el('p', { class: 'muted' }, tr('No sets with cards yet. Search for a card above or use View sets to open a set.')),
+    ];
   };
-  // Al marcar una carta desde el buscador, el set aparece (o desaparece) de la lista al momento.
-  const search = cardSearch(tcg, async () => renderSets(await window.tcg.listCollections(tcg.id)));
 
-  setChildren(view,
-    el('div', { class: 'collection-header tcg-header' },
-      el('h1', { class: 'title' }, tcg.name),
-      el('div', { class: 'toolbar' }, el('div', { class: 'toolbar-row' }, exportButton(tcg, null)))),
-    search,
-    el('div', { class: 'section-head collections-head' },
-      el('h2', { class: 'section-title' }, tr('Collections')),
+  const renderCollections = () => [
+    sectionHead(tr('Collections'),
       el('button', { class: 'btn btn-secondary btn-icon', onclick: () => navigate(showCollectionEditor, tcg, null) },
         el('span', { class: 'icon-plus' }), tr('Create collection'))),
-    customGrid,
-    el('div', { class: 'section-head sets-head' },
-      el('h2', { class: 'section-title' }, tr('Sets')),
-      el('button', { class: 'btn btn-secondary', onclick: () => navigate(showAllSets, tcg) }, tr('View sets'))),
-    setGrid
-  );
-  renderSets(collections);
+    customs().length ? el('div', { class: 'collection-grid' }, customs().map((c) => collectionItem(tcg, c)))
+      : el('p', { class: 'muted' }, tr('No collections yet. Use Create collection to group cards from any set.')),
+  ];
+
+  const createDeck = async () => {
+    const draft = await deckDialog({ title: tr('New deck'), okLabel: tr('Create deck'), tcg: tcg.id });
+    if (draft) navigate(showDeck, await window.tcg.createDeck(draft));
+  };
+  const renderDecks = () => [
+    sectionHead(tr('Decks'),
+      el('button', { class: 'btn btn-secondary btn-icon', onclick: createDeck }, el('span', { class: 'icon-plus' }), tr('Create deck'))),
+    decks.length ? el('div', { class: 'deck-grid' }, decks.map(deckTile))
+      : el('p', { class: 'muted' }, tr('No decks yet. Use Create deck to build your first one.')),
+  ];
+
+  const SECTIONS = { sets: renderSets, collections: renderCollections, decks: renderDecks };
+  render = () => {
+    nav.render(data);
+    setChildren(content, ...(SECTIONS[state.section] || renderSets)());
+  };
+  // Al marcar una carta desde el buscador, el set aparece (o desaparece) de la lista al momento.
+  const search = cardSearch(tcg, async () => {
+    data.collections = await window.tcg.listCollections(tcg.id);
+    render();
+  });
+
+  setChildren(root, search, content);
+  render();
+}
+
+// Fila de un set en la pantalla del TCG: logo, nombre, año y cartas, y el porcentaje a la derecha.
+function setRow(tcg, c) {
+  return el('button', { class: 'set-row' + (c.total && c.owned >= c.total ? ' complete' : ''), onclick: () => navigate(showCollection, tcg, c.id) },
+    setLogo(c),
+    el('div', { class: 'set-row-info' },
+      el('div', { class: 'set-name' }, c.name),
+      el('div', { class: 'collection-meta' },
+        [c.release_date?.slice(0, 4), tr('{owned} / {total} cards', { owned: c.owned, total: c.total }),
+          c.hidden ? tr('{n} hidden', { n: c.hidden }) : null].filter(Boolean).join(' · ')),
+      c.total ? progressBar(c.owned, c.total) : null),
+    c.total ? el('div', { class: 'collection-pct' + (c.owned >= c.total ? ' complete' : '') }, formatPct(c.owned, c.total)) : null);
 }
 
 function collectionItem(tcg, c) {
@@ -606,13 +756,14 @@ const setsState = { setQuery: '', scroll: 0 };
 
 async function showAllSets(tcg, opts = {}) {
   setChrome(`${tcg.name} › ${tr('All sets')}`, tcg);
-  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading sets…'))));
+  const root = tcgShell(tcg, 'allsets').content;
+  setChildren(root, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading sets…'))));
 
   let collections;
   try {
     collections = await window.tcg.listCollections(tcg.id, opts);
   } catch (err) {
-    setChildren(view,
+    setChildren(root,
       el('p', { class: 'error' }, tr('Could not download the set list. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
       el('button', { class: 'btn', onclick: () => showAllSets(tcg, opts) }, tr('Retry')));
@@ -644,7 +795,7 @@ async function showAllSets(tcg, opts = {}) {
     oninput: (e) => { setsState.setQuery = e.target.value; renderSets(); },
   });
 
-  setChildren(view,
+  setChildren(root,
     el('div', { class: 'collection-header' },
       el('div', {},
         el('h1', { class: 'title' }, tr('All sets')),
@@ -665,15 +816,20 @@ function setCode(c) {
   return tcgById(c.tcg).catalog && c.set_id.length <= 12 ? c.set_id : null;
 }
 
+function setLogo(c) {
+  return el('div', { class: 'set-logo' },
+    // Scryfall da el símbolo del set en SVG negro: se muestra en blanco (ver .mtg-symbol).
+    // TCGdex da la ruta del logo sin extensión; YGOPRODeck, la imagen del sobre (.jpg). Sin logo, el código del set.
+    c.logo && c.tcg === 'magic' ? el('img', { class: 'mtg-symbol', src: c.logo, alt: '', loading: 'lazy' })
+      : c.logo ? el('img', { src: /\.(jpe?g|png|webp)$/i.test(c.logo) ? c.logo : `${c.logo}.webp`, alt: '', loading: 'lazy' })
+      : setCode(c) ? el('span', { class: 'set-code' }, setCode(c)) : el('span', {}, tr('No logo')));
+}
+
 function setTile(c, onClick) {
   const owned = c.owned > 0;
-  return el('button', { class: 'set-tile' + (owned ? ' has-cards' : ''), onclick: onClick },
-    el('div', { class: 'set-logo' },
-      // Scryfall da el símbolo del set en SVG negro: se muestra en blanco (ver .mtg-symbol).
-      // TCGdex da la ruta del logo sin extensión; YGOPRODeck, la imagen del sobre (.jpg). Sin logo, el código del set.
-      c.logo && c.tcg === 'magic' ? el('img', { class: 'mtg-symbol', src: c.logo, alt: '', loading: 'lazy' })
-        : c.logo ? el('img', { src: /\.(jpe?g|png|webp)$/i.test(c.logo) ? c.logo : `${c.logo}.webp`, alt: '', loading: 'lazy' })
-        : setCode(c) ? el('span', { class: 'set-code' }, setCode(c)) : el('span', {}, tr('No logo'))),
+  const complete = c.total && c.owned >= c.total;
+  return el('button', { class: 'set-tile' + (complete ? ' complete' : owned ? ' has-cards' : ''), onclick: onClick },
+    setLogo(c),
     el('div', { class: 'set-name' }, c.name),
     el('div', { class: 'collection-meta' },
       [c.release_date?.slice(0, 4), owned ? tr('{owned} / {total} cards', { owned: c.owned, total: c.total })
@@ -1005,7 +1161,8 @@ function openFilterDialog(tcg, cards, state, statusOptions) {
 
 async function showCollection(tcg, collectionId, opts = {}) {
   setChrome(`${tcg.name} › …`, tcg);
-  setChildren(view, el('div', { class: 'loading' },
+  const root = tcgPage();
+  setChildren(root, el('div', { class: 'loading' },
     el('div', { class: 'spinner' }),
     el('p', {}, opts.refresh ? tr('Updating cards from {source}…', { source: tcg.source }) : tr('Loading cards…'))));
 
@@ -1013,7 +1170,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
   try {
     data = await window.tcg.getCollection(collectionId, opts);
   } catch (err) {
-    setChildren(view,
+    setChildren(root,
       el('p', { class: 'error' }, tr('Could not download the cards. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
       el('button', { class: 'btn', onclick: () => showCollection(tcg, collectionId, opts) }, tr('Retry')));
@@ -1110,7 +1267,7 @@ async function showCollection(tcg, collectionId, opts = {}) {
       ? tr('This collection has no cards yet. Use Edit collection to add some.') : tr('No cards match this filter.')));
   };
 
-  setChildren(view,
+  setChildren(root,
     el('div', { class: 'collection-header' },
       el('div', {},
         el('h1', { class: 'title' }, collection.name),
@@ -1372,9 +1529,10 @@ function openCardPicker(tcg, { search, filterKey, mapResult = (c) => c, pickTile
 async function showCollectionEditor(tcg, collectionId) {
   const isNew = !collectionId;
   setChrome(`${tcg.name} › ${tr(isNew ? 'New collection' : 'Edit collection')}`, tcg);
+  const root = tcgPage();
   const draft = { id: collectionId, name: '', cards: [] };
   if (!isNew) {
-    setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading collection…'))));
+    setChildren(root, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading collection…'))));
     const { collection, cards } = await window.tcg.getCollection(collectionId);
     draft.name = collection.name;
     draft.cards = cards.map((c) => ({ ...draftCard(c), quantity: c.quantity, variant_qty: c.variant_qty }));
@@ -1488,7 +1646,7 @@ async function showCollectionEditor(tcg, collectionId) {
     leave(showCollection, tcg, id);
   };
 
-  setChildren(view,
+  setChildren(root,
     el('div', { class: 'collection-header' },
       el('h1', { class: 'title' }, tr(isNew ? 'New collection' : 'Edit collection')),
       el('div', { class: 'toolbar' },
@@ -1511,7 +1669,8 @@ async function showCollectionEditor(tcg, collectionId) {
 // "Add cards" abre el buscador: clic = añadir a la wishlist / quitar.
 async function showWishlist(tcg) {
   setChrome(`${tcg.name} › ${tr('Wishlist')}`, tcg);
-  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading…'))));
+  const root = tcgShell(tcg, 'wishlist').content;
+  setChildren(root, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading…'))));
   let cards = await window.tcg.getWishlist(tcg.id);
 
   const counter = el('div', { class: 'counter' });
@@ -1587,7 +1746,7 @@ async function showWishlist(tcg) {
     });
   };
 
-  setChildren(view,
+  setChildren(root,
     el('div', { class: 'collection-header' },
       el('div', {}, el('h1', { class: 'title' }, tr('Wishlist')), counter),
       el('div', { class: 'toolbar' },
@@ -1935,18 +2094,19 @@ const deckViewState = {}; // filtro All / Owned / Not owned, por mazo
 
 async function showDeck(deckId) {
   setChrome(`${tr('My decks')} › …`);
-  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading deck…'))));
+  const root = tcgPage();
+  setChildren(root, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading deck…'))));
   let data;
   try {
     data = await window.tcg.getDeck(deckId);
   } catch (err) {
-    setChildren(view,
+    setChildren(root,
       el('p', { class: 'error' }, tr('Could not load the deck.')),
       el('p', { class: 'muted' }, String(err.message || err)),
       el('button', { class: 'btn', onclick: () => showDeck(deckId) }, tr('Retry')));
     return;
   }
-  if (!data) { setChildren(view, el('p', { class: 'error' }, tr('This deck no longer exists.'))); return; }
+  if (!data) { setChildren(root, el('p', { class: 'error' }, tr('This deck no longer exists.'))); return; }
   let { deck, cards } = data;
   const tcg = tcgById(deck.tcg);
   const state = (deckViewState[deckId] ||= { status: '' });
@@ -2190,7 +2350,7 @@ async function showDeck(deckId) {
     fn(...args);
   };
 
-  setChildren(view,
+  setChildren(root,
     el('div', { class: 'collection-header' },
       el('div', {}, title, meta, counter, el('div', { class: 'progress wide' }, bar)),
       el('div', { class: 'toolbar' },
@@ -2582,7 +2742,8 @@ const dexState = { filter: 'all', search: '', scroll: 0 };
 
 async function showPokedex(tcg, opts = {}) {
   setChrome(`${tcg.name} › Pokédex`, tcg);
-  setChildren(view, el('div', { class: 'loading' },
+  const root = tcgShell(tcg, 'pokedex').content;
+  setChildren(root, el('div', { class: 'loading' },
     el('div', { class: 'spinner' }),
     el('p', {}, tr('Loading the Pokédex… (the first time it downloads every Pokémon card, this takes a few seconds)'))));
 
@@ -2593,7 +2754,7 @@ async function showPokedex(tcg, opts = {}) {
     dex = list;
     dexNotes = { id: 'pokedex', name: 'Pokédex', notes };
   } catch (err) {
-    setChildren(view,
+    setChildren(root,
       el('p', { class: 'error' }, tr('Could not download the Pokédex. Are you connected to the internet?')),
       el('p', { class: 'muted' }, String(err.message || err)),
       el('button', { class: 'btn', onclick: () => showPokedex(tcg, opts) }, tr('Retry')));
@@ -2633,7 +2794,7 @@ async function showPokedex(tcg, opts = {}) {
     oninput: (e) => { dexState.search = e.target.value; render(); },
   });
 
-  setChildren(view,
+  setChildren(root,
     el('div', { class: 'collection-header' },
       el('div', {},
         el('h1', { class: 'title' }, 'Pokédex'),
@@ -2689,15 +2850,16 @@ function formatPrice(card) {
 
 async function showPokemon(tcg, dexId) {
   setChrome(`${tcg.name} › Pokédex › …`, tcg);
+  const root = tcgPage();
   view.scrollTop = 0;
-  setChildren(view, el('div', { class: 'loading' },
+  setChildren(root, el('div', { class: 'loading' },
     el('div', { class: 'spinner' }), el('p', {}, tr('Loading cards and prices…'))));
 
   let data;
   try {
     data = await window.tcg.getPokemon(dexId, tcgPrefs.pokedexKinds);
   } catch (err) {
-    setChildren(view,
+    setChildren(root,
       el('p', { class: 'error' }, tr('Could not load the cards.')),
       el('p', { class: 'muted' }, String(err.message || err)),
       el('button', { class: 'btn', onclick: () => showPokemon(tcg, dexId) }, tr('Retry')));
@@ -2728,7 +2890,7 @@ async function showPokemon(tcg, dexId) {
     }
   };
 
-  setChildren(view,
+  setChildren(root,
     el('div', { class: 'collection-header' },
       el('div', { class: 'pokemon-head' },
         el('img', { class: 'pokemon-sprite', src: spriteUrl(dexId), alt: '' }),
