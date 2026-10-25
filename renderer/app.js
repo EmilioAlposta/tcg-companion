@@ -168,6 +168,17 @@ function gearIcon(cls) {
   return svg;
 }
 
+// Estrella en SVG: el carácter ★ no queda centrado en su caja (depende de la fuente).
+function starIcon() {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', 'M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95z');
+  svg.append(path);
+  return svg;
+}
+
 // Fondo con imagen y encuadre ("posición / tamaño"); bajo la imagen, el color del TCG por si no carga.
 const artStyle = (url, frame = 'center / cover', color = '#1d3352') =>
   `background: url("${url}") ${frame} no-repeat, ${color}`;
@@ -1942,7 +1953,7 @@ async function showDeck(deckId) {
             class: 'deck-step', title: tr('Add a copy'),
             onclick: () => { sfx.play('add'); changeCopies(c, 1); },
           }, el('span', { class: 'icon-plus' }))) : null,
-        deckCover(deck, cards)?.id === c.id ? el('div', { class: 'deck-cover-badge', title: tr('Deck cover') }, '★') : null),
+        deckCover(deck, cards)?.id === c.id ? el('div', { class: 'deck-cover-badge', title: tr('Deck cover') }, starIcon()) : null),
       el('div', { class: 'card-info' },
         el('div', { class: 'card-name' }, `#${c.local_id} ${c.name}`),
         el('div', { class: 'card-sub' }, c.set_name || c.set_id || ''),
