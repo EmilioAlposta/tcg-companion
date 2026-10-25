@@ -25,6 +25,19 @@ const i18n = (() => {
     'Cards downloaded': 'Cartas descargadas',
     'Open it to change any option': 'Entra para cambiar cualquier opción',
 
+    // Wishlist
+    'Wishlist': 'Wishlist',
+    'The cards you want to get': 'Las cartas que quieres conseguir',
+    'Add to wishlist': 'Agregar a la wishlist',
+    'Remove from wishlist': 'Quitar de la wishlist',
+    '{n} already owned': '{n} ya conseguidas',
+    'Your wishlist is empty. Use Add cards to search for some.': 'Tu wishlist está vacía. Usa Agregar cartas para buscar alguna.',
+    'In the wishlist (click to remove it)': 'En la wishlist (clic para quitarla)',
+    'Click to add it to the wishlist': 'Clic para agregarla a la wishlist',
+    'Click a card to add it to the wishlist or remove it.': 'Haz clic en una carta para agregarla a la wishlist o quitarla.',
+    'Click a card to mark it as owned once you get it. Use ⋮ to change the quantity or remove it from the wishlist. From any set or deck, ⋮ › Add to wishlist adds a card here.':
+      'Haz clic en una carta para marcarla como tuya cuando la consigas. Usa ⋮ para cambiar la cantidad o quitarla de la wishlist. Desde cualquier set o mazo, ⋮ › Agregar a la wishlist la añade aquí.',
+
     // Settings
     'Settings': 'Configuración',
     'Sound, language and the TCGs you collect': 'Sonido, idioma y los TCG que coleccionas',

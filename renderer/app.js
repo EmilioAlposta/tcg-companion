@@ -6,7 +6,7 @@ const TCGS = [
     color: '#c46a2b',
     art: 'https://cards.scryfall.io/art_crop/front/c/8/c8817585-0d32-4d56-9142-0d29512e86a9.jpg?1783930196',
     artFrame: 'center 12% / cover',
-    cover: 'https://cards.scryfall.io/art_crop/front/c/5/c5408607-af8f-48fe-bc40-32828d1976de.jpg?1783913282' },
+    cover: 'https://cards.scryfall.io/large/front/c/5/c5408607-af8f-48fe-bc40-32828d1976de.jpg?1783913282' },
   { id: 'pokemon', name: 'Pokémon', short: 'Pokémon', image: '../assets/tcg/pokemon.svg', logo: '../assets/tcg/pokemon-logo.svg', enabled: true, example: 'Charizard', source: 'TCGdex',
     color: '#2f6fe0',
     art: 'https://assets.tcgdex.net/en/swsh/swsh12.5/160/high.webp',
@@ -71,6 +71,29 @@ const hiddenTcgs = (() => {
   };
 })();
 const visibleTcgs = () => TCGS.filter((t) => t.enabled && !hiddenTcgs.has(t.id));
+
+// ---------- Wishlist ----------
+// Ids de las cartas de la wishlist (de todos los TCG), para que el menú ⋮ sepa al momento si ofrece añadir o quitar.
+// Al cambiar se lanza el evento "wishlist-change" en document (la vista de la wishlist se vuelve a pintar).
+const wishlist = (() => {
+  const ids = new Map(); // card_id -> tcg
+  window.tcg.wishlistIds().then((rows) => { for (const r of rows) ids.set(r.card_id, r.tcg); }).catch(() => {});
+  const changed = () => document.dispatchEvent(new CustomEvent('wishlist-change'));
+  return {
+    has: (id) => ids.has(id),
+    count: (tcg) => [...ids.values()].filter((t) => t === tcg).length,
+    async add(tcg, card) { await window.tcg.addToWishlist(tcg, wishCard(card)); ids.set(card.id, tcg); changed(); },
+    async remove(id) { await window.tcg.removeFromWishlist(id); ids.delete(id); changed(); },
+  };
+})();
+
+// Carta en el formato que guarda la wishlist, venga de un set, del buscador, del editor o de un mazo.
+const wishCard = (c) => ({
+  id: c.id, name: c.name, rarity: c.rarity,
+  setId: c.set_id || c.setId || c.set?.id, setName: c.set_name || c.setName || c.set?.name,
+  localId: c.local_id ?? c.localId, image: c.image_url || c.image, price: c.price, attrs: c.attrs, variants: c.variants,
+  setOfficial: c.set_official, tcgplayerId: c.tcgplayer_id, scryfallUri: c.scryfall_uri,
+});
 const listNames = (names) => (names.length > 1 ? tr('{list} and {last}', { list: names.slice(0, -1).join(', '), last: names.at(-1) }) : names[0] || '');
 
 // Como node.replaceChildren, pero ignora null/undefined (replaceChildren los escribiría como texto "null").
@@ -333,13 +356,19 @@ async function showTcg(tcg) {
   // Las colecciones custom van junto a la Pokédex, siempre visibles aunque no tengan cartas.
   const setGrid = el('div', { class: 'collection-grid' });
   const customGrid = el('div', { class: 'collection-grid' });
+  const wishCount = wishlist.count(tcg.id);
+  const wishlistItem = el('button', { class: 'collection-item wishlist-item', onclick: () => navigate(showWishlist, tcg) },
+    itemHeader(`♥ ${tr('Wishlist')}`),
+    el('div', { class: 'collection-meta' },
+      wishCount ? tr(wishCount === 1 ? '{n} card' : '{n} cards', { n: wishCount }) : tr('The cards you want to get')));
+
   const renderSets = (cols) => {
-    setChildren(customGrid, pokedexItem, ...cols.filter((c) => c.custom).map((c) => collectionItem(tcg, c)));
+    setChildren(customGrid, wishlistItem, pokedexItem, ...cols.filter((c) => c.custom).map((c) => collectionItem(tcg, c)));
     const active = cols.filter((c) => !c.custom && c.owned > 0);
     setChildren(setGrid, ...active.map((c) => collectionItem(tcg, c)));
     if (!active.length) setGrid.append(el('p', { class: 'muted' },
       tr('No sets with cards yet. Search for a card above or use View sets to open a set.')));
-    if (!customGrid.children.length) customGrid.append(el('p', { class: 'muted' },
+    if (!cols.some((c) => c.custom)) customGrid.append(el('p', { class: 'muted' },
       tr('No collections yet. Use Create collection to group cards from any set.')));
   };
   // Al marcar una carta desde el buscador, el set aparece (o desaparece) de la lista al momento.
@@ -412,7 +441,7 @@ function cardSearch(tcg, onChange) {
           { id: c.id, setId: c.set.id, localId: c.localId, name: c.name, rarity: c.rarity, image: c.image });
         render();
         onChange?.();
-      }, [c.set.name, c.rarity || ''])));
+      }, [c.set.name, c.rarity || ''], () => cardLinkItems(tcg, c))));
       if (cards.length && !list.length) grid.append(el('p', { class: 'muted' }, tr('No cards match these filters.')));
     };
     render();
@@ -1325,6 +1354,100 @@ async function showCollectionEditor(tcg, collectionId) {
   if (isNew) nameInput.focus();
 }
 
+// ---------- Wishlist de un TCG ----------
+// Cartas que quieres conseguir. Clic = la tengo / no la tengo (igual que en un set); ⋮ = cantidad, enlaces y quitarla.
+// "Add cards" abre el buscador: clic = añadir a la wishlist / quitar.
+async function showWishlist(tcg) {
+  setChrome(`${tcg.name} › ${tr('Wishlist')}`, tcg);
+  setChildren(view, el('div', { class: 'loading' }, el('div', { class: 'spinner' }), el('p', {}, tr('Loading…'))));
+  let cards = await window.tcg.getWishlist(tcg.id);
+
+  const counter = el('div', { class: 'counter' });
+  const grid = el('div', { class: 'card-grid' });
+
+  const setQuantity = async (card, quantity) => {
+    setLocalTotal(card, quantity);
+    await window.tcg.setOwned(card.id, card.quantity, wishCard(card));
+    render();
+  };
+  const setVariant = async (card, key, quantity) => {
+    setLocalVariant(card, key, Math.max(0, quantity));
+    await window.tcg.setVariantOwned(card.id, key, Math.max(0, quantity), wishCard(card));
+    render();
+  };
+  const menuFor = (card) => quantityMenuItems(tcg, card, (q) => setQuantity(card, q), (changed) => {
+    for (const c of cards) if (changed[c.id] != null) setLocalTotal(c, changed[c.id]);
+    render();
+  }, (key, q) => setVariant(card, key, q));
+
+  const render = () => {
+    const owned = cards.filter((c) => c.quantity > 0).length;
+    counter.textContent = tr(cards.length === 1 ? '{n} card' : '{n} cards', { n: cards.length })
+      + (owned ? ` · ${tr('{n} already owned', { n: owned })}` : '');
+    setChildren(grid, ...cards.map((card) => cardTile(card, () => {
+      if (card.quantity <= 1) setQuantity(card, card.quantity ? 0 : 1);
+    }, [card.set_name || card.set_id, card.rarity || '', qtyLabel(card)], () => menuFor(card))));
+    if (!cards.length) grid.append(el('p', { class: 'muted' }, tr('Your wishlist is empty. Use Add cards to search for some.')));
+  };
+
+  // Cualquier cambio en la wishlist (desde el ⋮ de aquí o desde el buscador) vuelve a leerla.
+  const reload = async () => {
+    if (!grid.isConnected) { document.removeEventListener('wishlist-change', reload); return; }
+    cards = await window.tcg.getWishlist(tcg.id);
+    render();
+    refreshPicker?.();
+  };
+  document.addEventListener('wishlist-change', reload);
+
+  const search = { query: '', results: [] };
+  let refreshPicker = null;
+  const pickTile = (c) => {
+    const isIn = wishlist.has(c.id);
+    const t = { ...c, image_url: c.image, local_id: c.localId };
+    return el('div', {
+      class: 'card pick' + (isIn ? ' owned' : ''),
+      title: tr(isIn ? 'In the wishlist (click to remove it)' : 'Click to add it to the wishlist'),
+      onclick: () => { sfx.play(isIn ? 'remove' : 'add'); isIn ? wishlist.remove(c.id) : wishlist.add(tcg.id, t); },
+    },
+      el('div', { class: 'card-img-wrap' },
+        t.image_url
+          ? el('img', { src: cardImage(t.image_url), alt: c.name, loading: 'lazy' })
+          : el('div', { class: 'no-image' }, c.name, el('br'), tr('No image')),
+        expandButton(t),
+        el('div', { class: 'check pick-toggle', title: tr(isIn ? 'Remove from wishlist' : 'Add to wishlist') },
+          el('span', { class: isIn ? 'icon-minus' : 'icon-plus' }))),
+      el('div', { class: 'card-info' },
+        el('div', { class: 'card-name' }, `#${c.localId} ${c.name}`),
+        el('div', { class: 'card-sub' }, c.setName || ''),
+        el('div', { class: 'card-sub' }, c.quantity ? qtyLabel(c) : '')));
+  };
+  const openPicker = () => {
+    refreshPicker = openCardPicker(tcg, {
+      search, filterKey: `wishlist:${tcg.id}`, pickTile,
+      mapResult: (c) => ({
+        id: c.id, setId: c.set.id, setName: c.set.name, localId: c.localId,
+        name: c.name, rarity: c.rarity, image: c.image, price: c.price, quantity: c.quantity, attrs: c.attrs,
+        variants: c.variants, variant_qty: c.variant_qty,
+      }),
+      subtitle: () => `${tr('Wishlist')} · ${tr(cards.length === 1 ? '{n} card' : '{n} cards', { n: cards.length })}`,
+      hint: tr('Click a card to add it to the wishlist or remove it.'),
+      onClose: () => { refreshPicker = null; },
+    });
+  };
+
+  setChildren(view,
+    el('div', { class: 'collection-header' },
+      el('div', {}, el('h1', { class: 'title' }, tr('Wishlist')), counter),
+      el('div', { class: 'toolbar' },
+        el('div', { class: 'toolbar-row' },
+          el('button', { class: 'btn btn-secondary btn-icon', onclick: openPicker }, el('span', { class: 'icon-plus' }), tr('Add cards'))))),
+    el('p', { class: 'muted hint' },
+      tr('Click a card to mark it as owned once you get it. Use ⋮ to change the quantity or remove it from the wishlist. From any set or deck, ⋮ › Add to wishlist adds a card here.')),
+    grid
+  );
+  render();
+}
+
 // ---------- Mazos ----------
 // Las cartas de un mazo no son cartas que tienes: si la tienes o no sale de tu colección, y en cada mazo se puede
 // marcar al revés (p. ej. una sola copia que usas en dos mazos), sin cambiar la colección.
@@ -2054,6 +2177,9 @@ function cardLinkItems(tcg, card, onAllArts) {
   const link = { id: card.id, name: card.name, localId: card.local_id, official: card.set_official, tcg: tcg.id,
     tcgplayerId: card.tcgplayer_id, scryfallUri: card.scryfall_uri, setId: card.set_id || card.setId || card.set?.id };
   return [
+    wishlist.has(card.id)
+      ? { label: tr('Remove from wishlist'), icon: '♡', sound: 'remove', onClick: () => wishlist.remove(card.id) }
+      : { label: tr('Add to wishlist'), icon: '♥', sound: 'add', onClick: () => wishlist.add(tcg.id, card) },
     { label: tr('View price'), icon: '$', onClick: () => showPrices(tcg, card) },
     onAllArts ? { label: tr('View all arts'), icon: '❐', onClick: onAllArts } : null,
     tcg.id === 'pokemon' ? { label: tr('View on {site}', { site: 'TCG Collector' }), icon: '↗', onClick: () => window.tcg.openTcgCollector(link) } : null,

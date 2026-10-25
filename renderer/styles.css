@@ -239,6 +239,7 @@ main { flex: 1; overflow-y: auto; padding: 24px 32px; }
 
 /* ---------- Pokédex ---------- */
 .pokedex-item { border-color: #ffcb0555; }
+.wishlist-item { border-color: #ff5c8a55; }
 .section-title { margin: 18px 0 2px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 .search {
   background: var(--panel); border: 1px solid #ffffff22; border-radius: 8px;

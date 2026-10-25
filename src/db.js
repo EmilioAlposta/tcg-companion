@@ -125,6 +125,20 @@ CREATE TABLE IF NOT EXISTS deck_cards (
   added_at       TEXT NOT NULL,
   PRIMARY KEY (deck_id, card_id)
 );
+
+-- Wishlist de cada TCG: cartas que quieres conseguir. Como en los mazos, guarda los datos de la carta y no la
+-- marca como tuya; si ya la tienes sale de owned_cards.
+CREATE TABLE IF NOT EXISTS wishlist (
+  card_id   TEXT PRIMARY KEY,
+  tcg       TEXT NOT NULL,
+  set_id    TEXT,
+  local_id  TEXT,
+  name      TEXT NOT NULL,
+  rarity    TEXT,
+  image_url TEXT,
+  data_json TEXT,
+  added_at  TEXT NOT NULL
+);
 `;
 
 // Condición SQL: la carta k no está oculta en su colección.
@@ -542,6 +556,45 @@ class Database {
 
   touchDeck(deckId, now = new Date().toISOString()) {
     this.db.run('UPDATE decks SET updated_at = $now WHERE id = $id', { $id: deckId, $now: now });
+  }
+
+  // ---------- Wishlist ----------
+
+  getWishlistIds() {
+    return this.all('SELECT card_id, tcg FROM wishlist');
+  }
+
+  // Mismo formato que getCards (quantity = copias que ya tienes), de la más reciente a la más antigua.
+  getWishlist(tcg) {
+    return this.all(
+      `SELECT w.card_id AS id, w.set_id, w.local_id, w.name, w.rarity, w.image_url, w.data_json,
+              COALESCE(o.quantity, 0) AS quantity
+         FROM wishlist w LEFT JOIN owned_cards o ON o.card_id = w.card_id
+        WHERE w.tcg = $tcg ORDER BY w.added_at DESC, w.card_id`,
+      { tcg }
+    ).map(({ data_json, ...card }) => this.withVariantQuantities({ ...parseJson(data_json), ...card }));
+  }
+
+  addToWishlist(tcg, card) {
+    this.db.run(
+      `INSERT OR IGNORE INTO wishlist (card_id, tcg, set_id, local_id, name, rarity, image_url, data_json, added_at)
+       VALUES ($id, $tcg, $set_id, $local_id, $name, $rarity, $image_url, $data_json, $now)`,
+      {
+        $id: card.id, $tcg: tcg, $set_id: card.setId || '', $local_id: card.localId || '', $name: card.name,
+        $rarity: card.rarity || null, $image_url: card.image || null, $now: new Date().toISOString(),
+        $data_json: JSON.stringify({
+          set_name: card.setName || undefined, set_official: card.setOfficial ?? undefined, price: card.price ?? undefined,
+          attrs: card.attrs || undefined, variants: card.variants || undefined,
+          tcgplayer_id: card.tcgplayerId || undefined, scryfall_uri: card.scryfallUri || undefined,
+        }),
+      }
+    );
+    this.save();
+  }
+
+  removeFromWishlist(cardId) {
+    this.db.run('DELETE FROM wishlist WHERE card_id = $id', { $id: cardId });
+    this.save();
   }
 
   // ---------- Sets de TCGdex ----------

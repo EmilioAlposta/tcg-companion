@@ -281,6 +281,20 @@ function registerIpc() {
     return db.getDeckCards(deckId);
   });
 
+  // Wishlist: tampoco marca las cartas como tuyas.
+  ipcMain.handle('wishlist:ids', () => db.getWishlistIds());
+  ipcMain.handle('wishlist:get', (_e, tcg) => db.getWishlist(tcg));
+  ipcMain.handle('wishlist:add', (_e, tcg, card) => {
+    if (!TCG_IDS.includes(tcg)) throw new Error(`Unknown TCG: ${tcg}`);
+    if (!card?.id || !card.name) throw new Error('The card needs an id and a name');
+    db.addToWishlist(tcg, card);
+    return true;
+  });
+  ipcMain.handle('wishlist:remove', (_e, cardId) => {
+    db.removeFromWishlist(cardId);
+    return true;
+  });
+
   ipcMain.handle('pokedex:stats', () => (db.isPokedexSynced() ? db.getPokedexStats() : null));
   ipcMain.handle('pokedex:get', async (_e, { refresh = false } = {}) => {
     if (refresh || !db.isPokedexSynced()) await syncPokedex(db);
