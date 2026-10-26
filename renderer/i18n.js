@@ -52,7 +52,66 @@ const i18n = (() => {
     'The rest of the cards in the sets: common, uncommon, rare, holo rare, V, VMAX, double rare…':
       'El resto de las cartas de los sets: comunes, poco comunes, raras, holo, V, VMAX, double rare…',
     'Settings': 'Configuración',
-    'Sound, language and the TCGs you collect': 'Sonido, idioma y los TCG que coleccionas',
+    // Settings › Storage y Data management
+    'Storage': 'Almacenamiento',
+    'Data management': 'Gestión de datos',
+    'OK': 'Aceptar',
+    'Database location': 'Ubicación de la base de datos',
+    'The folder where your collection is saved.': 'La carpeta donde se guarda tu colección.',
+    'Change folder': 'Cambiar carpeta',
+    'Use default folder': 'Usar la carpeta por defecto',
+    'To use the same collection on several computers, choose a folder synced with Google Drive, OneDrive or Dropbox, and on the other computers choose that same folder and use the database that is already there. Keep the app open on only one computer at a time: every change saves the whole file, so if two are open, the last one to save wins. On Android, use Export all data and Import data instead.':
+      'Para usar la misma colección en varios ordenadores, elige una carpeta sincronizada con Google Drive, OneDrive o Dropbox, y en los demás ordenadores elige esa misma carpeta y usa la base de datos que ya está allí. Ten la app abierta en un solo ordenador a la vez: cada cambio guarda el fichero entero, así que si hay dos abiertas, gana la última que guarde. En Android, usa Exportar todos los datos e Importar datos.',
+    'Your collection is saved on this device. To move it to another device, use Export all data and then Import data on the other one.':
+      'Tu colección se guarda en este dispositivo. Para pasarla a otro, usa Exportar todos los datos y luego Importar datos en el otro.',
+    'The folder {dir} is not available (is the drive connected?), so the default folder is being used. Changes you make now are saved here, not there.':
+      'La carpeta {dir} no está disponible (¿está conectada la unidad?), así que se usa la carpeta por defecto. Los cambios que hagas ahora se guardan aquí, no allí.',
+    'Choose a folder for the database': 'Elige una carpeta para la base de datos',
+    'There is already a database there': 'Ya hay una base de datos allí',
+    'That folder already has a TCG Companion database (maybe from another computer). Use that one, or replace it with the data you have now? If you replace it, a copy of it is kept in the folder.':
+      'Esa carpeta ya tiene una base de datos de TCG Companion (quizá de otro ordenador). ¿Usas esa, o la reemplazas con los datos que tienes ahora? Si la reemplazas, se guarda una copia en la carpeta.',
+    'Replace it': 'Reemplazarla',
+    'Use that one': 'Usar esa',
+    'Database location changed': 'Ubicación cambiada',
+    'Your collection is now saved in {dir}. The previous folder keeps a copy of the database.':
+      'Tu colección ahora se guarda en {dir}. La carpeta anterior conserva una copia de la base de datos.',
+    'Could not change the location': 'No se pudo cambiar la ubicación',
+    'Export all data': 'Exportar todos los datos',
+    'Saves your cards, decks, custom collections, wishlist, notes and settings in a backup file (JSON). Use it as a backup or to move your collection to another device.':
+      'Guarda tus cartas, mazos, colecciones custom, wishlist, notas y ajustes en un fichero de copia de seguridad (JSON). Úsalo como copia o para pasar tu colección a otro dispositivo.',
+    'Data exported': 'Datos exportados',
+    'Export failed': 'No se pudo exportar',
+    'Import data': 'Importar datos',
+    'Loads a backup file and replaces all your current data with it. The downloaded card data is kept.':
+      'Carga un fichero de copia de seguridad y reemplaza con él todos tus datos actuales. Los datos de cartas descargados se conservan.',
+    'Import': 'Importar',
+    'Replace all your data with the backup "{name}"? What you have now is deleted: {summary}':
+      '¿Reemplazar todos tus datos con la copia "{name}"? Se borra lo que tienes ahora: {summary}',
+    'Importing… If a set list is missing it is downloaded first.': 'Importando… Si falta la lista de sets de algún TCG, primero se descarga.',
+    'Data imported': 'Datos importados',
+    'Import failed': 'No se pudo importar',
+    'The file is not a TCG Companion backup.': 'El fichero no es una copia de seguridad de TCG Companion.',
+    'Clear all data': 'Borrar todos los datos',
+    'Deletes your collection, decks, custom collections, wishlist, notes and hidden cards. Your settings are kept.':
+      'Borra tu colección, mazos, colecciones custom, wishlist, notas y cartas ocultas. Tus ajustes se conservan.',
+    'Now: {summary}': 'Ahora: {summary}',
+    'This deletes {summary} It also deletes your notes and hidden cards. It cannot be undone: export your data first if you might want it back.':
+      'Se borran {summary} También tus notas y cartas ocultas. No se puede deshacer: exporta tus datos antes si quizá los quieras recuperar.',
+    'Delete everything': 'Borrar todo',
+    'Also delete the downloaded card data (sets, cards, prices and Pokédex). It is downloaded again when you need it.':
+      'Borrar también los datos de cartas descargados (sets, cartas, precios y Pokédex). Se vuelven a descargar cuando hagan falta.',
+    'Deleting…': 'Borrando…',
+    'Data deleted': 'Datos borrados',
+    'All your data has been deleted. Your settings are kept.': 'Se han borrado todos tus datos. Tus ajustes se conservan.',
+    'Could not delete the data': 'No se pudieron borrar los datos',
+    '{cards}, {decks}, {collections} and {wishlist}.': '{cards}, {decks}, {collections} y {wishlist}.',
+    '{n} card in your collection': '{n} carta en tu colección',
+    '{n} cards in your collection': '{n} cartas en tu colección',
+    '{n} custom collection': '{n} colección custom',
+    '{n} custom collections': '{n} colecciones custom',
+    '{n} card in the wishlist': '{n} carta en la wishlist',
+    '{n} cards in the wishlist': '{n} cartas en la wishlist',
+    'Sound, language, the TCGs you collect and your data': 'Sonido, idioma, los TCG que coleccionas y tus datos',
     'General': 'General',
     'Sound effects': 'Efectos de sonido',
     'Sounds when browsing, marking cards and using filters.': 'Sonidos al navegar, marcar cartas y usar los filtros.',
@@ -62,6 +121,7 @@ const i18n = (() => {
     'Language of the app. Card names and card data stay as the source gives them.':
       'Idioma de la app. Los nombres y datos de las cartas se muestran tal como los da cada fuente.',
     'TCGs': 'TCG',
+    'TCG management': 'Gestión de TCG',
     'Main menu': 'Menú principal',
     'Hidden': 'Oculto',
     'Previous option': 'Opción anterior',

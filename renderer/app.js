@@ -56,6 +56,7 @@ const navStack = [];
 function navigate(fn, ...args) {
   if (navStack.length) sfx.play('open'); // la pantalla inicial, al arrancar, no suena
   navStack.push([fn, args]);
+  view.scrollTop = 0; // cada pantalla nueva empieza arriba (al volver, las que lo necesitan recuperan su scroll)
   fn(...args);
 }
 
@@ -83,8 +84,12 @@ function renderStaticTexts() {
 const hiddenTcgs = (() => {
   const STORAGE_KEY = 'hidden-tcgs';
   let hidden = [];
-  try { hidden = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { /* sin almacenamiento: se ven todos */ }
+  const load = () => {
+    try { hidden = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { hidden = []; /* sin almacenamiento: se ven todos */ }
+  };
+  load();
   return {
+    reload: load, // tras importar una copia de seguridad
     has: (id) => hidden.includes(id),
     set(id, value) {
       hidden = value ? [...new Set([...hidden, id])] : hidden.filter((x) => x !== id);
@@ -106,10 +111,14 @@ const DEX_KINDS = [
 const tcgPrefs = (() => {
   const STORAGE_KEY = 'tcg-prefs';
   let prefs = {};
-  try { prefs = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch { /* sin almacenamiento: por defecto */ }
+  const load = () => {
+    try { prefs = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch { prefs = {}; /* sin almacenamiento: por defecto */ }
+  };
+  load();
   const save = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs)); } catch { /* no se recuerda, da igual */ } };
   const offFormats = (tcg) => prefs.offFormats?.[tcg] || [];
   return {
+    reload: load, // tras importar una copia de seguridad
     formatOn: (tcg, id) => !offFormats(tcg).includes(id),
     setFormat(tcg, id, on) {
       prefs.offFormats = { ...prefs.offFormats, [tcg]: on ? offFormats(tcg).filter((x) => x !== id) : [...new Set([...offFormats(tcg), id])] };
@@ -130,9 +139,14 @@ const tcgPrefs = (() => {
 // Al cambiar se lanza el evento "wishlist-change" en document (la vista de la wishlist se vuelve a pintar).
 const wishlist = (() => {
   const ids = new Map(); // card_id -> tcg
-  window.tcg.wishlistIds().then((rows) => { for (const r of rows) ids.set(r.card_id, r.tcg); }).catch(() => {});
+  const load = () => window.tcg.wishlistIds().then((rows) => {
+    ids.clear();
+    for (const r of rows) ids.set(r.card_id, r.tcg);
+  }).catch(() => {});
+  load();
   const changed = () => document.dispatchEvent(new CustomEvent('wishlist-change'));
   return {
+    reload: () => load().then(changed), // tras borrar o importar todos los datos
     has: (id) => ids.has(id),
     count: (tcg) => [...ids.values()].filter((t) => t === tcg).length,
     async add(tcg, card) { await window.tcg.addToWishlist(tcg, wishCard(card)); ids.set(card.id, tcg); changed(); },
@@ -302,7 +316,7 @@ function showHome() {
       tcg: t,
     })),
     { kind: 'decks', color: '#d8262f', title: tr('My decks'), sub: buildText, open: () => navigate(showDecks), small: true },
-    { kind: 'settings', color: '#1d3352', title: tr('Settings'), sub: tr('Sound, language and the TCGs you collect'), open: () => navigate(showSettings), small: true },
+    { kind: 'settings', color: '#1d3352', title: tr('Settings'), sub: tr('Sound, language, the TCGs you collect and your data'), open: () => navigate(showSettings), small: true },
   ];
   let decks = [];
   let stats = null;
@@ -502,10 +516,35 @@ function showSettings() {
     return el('div', { class: 'settings-tcg-block', style: `--c: ${t.color}` }, banner, el('div', { class: 'settings-tcg-options' }, options));
   });
 
+  // Secciones plegables: solo una desplegada a la vez (al abrir una se cierra la otra; pulsar la abierta la cierra).
+  // Se cambia en la página, sin repintar; la abierta se recuerda para cuando Settings se vuelve a pintar.
+  const section = (id, title, ...content) => {
+    const node = el('section', { class: 'settings-section' + (settingsOpenSection === id ? ' open' : '') },
+      el('button', {
+        class: 'settings-section-head', type: 'button', 'aria-expanded': String(settingsOpenSection === id),
+        onclick: () => {
+          sfx.play('check');
+          settingsOpenSection = settingsOpenSection === id ? null : id;
+          for (const s of view.querySelectorAll('.settings-section')) {
+            const open = s === node && settingsOpenSection === id;
+            s.classList.toggle('open', open);
+            s.querySelector('.settings-section-head').setAttribute('aria-expanded', String(open));
+          }
+          node.scrollIntoView({ block: 'nearest' });
+        },
+      },
+      el('span', { class: 'settings-tag home-display' }, title),
+      el('span', { class: 'settings-section-line' }),
+      el('span', { class: 'settings-section-arrow' }, '▶')),
+      el('div', { class: 'settings-section-body' }, content));
+    return node;
+  };
+
+  const storageBox = el('div', {});
+  const dataBox = el('div', {});
   setChildren(view, el('div', { class: 'settings-screen' }, el('div', { class: 'settings-page' },
     el('h1', { class: 'settings-heading home-display' }, tr('Settings')),
-    el('section', { class: 'settings-section' },
-      el('h2', { class: 'settings-tag home-display' }, tr('General')),
+    section('general', tr('General'),
       row(tr('Sound effects'), tr('Sounds when browsing, marking cards and using filters.'),
         cycler([[true, tr('On')], [false, tr('Off')]], !sfx.muted, (on) => {
           sfx.setMuted(!on);
@@ -518,9 +557,172 @@ function showSettings() {
           renderStaticTexts();
           showSettings();
         }))),
-    el('section', { class: 'settings-section' },
-      el('h2', { class: 'settings-tag home-display' }, tr('TCGs')),
-      el('div', { class: 'settings-tcgs' }, tcgBlocks)))));
+    section('tcgs', tr('TCG management'), el('div', { class: 'settings-tcgs' }, tcgBlocks)),
+    section('storage', tr('Storage'), storageBox),
+    section('data', tr('Data management'), dataBox))));
+  fillDataSettings(row, storageBox, dataBox);
+}
+let settingsOpenSection = 'general';
+
+// Ajustes de la app que viajan en la copia de seguridad (los de cada pantalla, como la barra plegada, no).
+const PREF_KEYS = ['lang', 'sfx-muted', 'hidden-tcgs', 'tcg-prefs'];
+
+// Settings › Storage (dónde está la base de datos) y Data management (exportar, importar y borrar todo).
+// La ruta y los números llegan de la base de datos: se pintan con los de la última vez (para que la página no
+// cambie de alto al repintar Settings) y otra vez al llegar.
+let dataSettingsCache = null;
+async function fillDataSettings(row, storageBox, dataBox) {
+  if (dataSettingsCache) renderDataSettings(row, storageBox, dataBox, ...dataSettingsCache);
+  try {
+    dataSettingsCache = await Promise.all([window.tcg.storageInfo(), window.tcg.userDataCounts()]);
+  } catch (err) {
+    setChildren(dataBox, el('p', { class: 'error' }, String(err.message || err)));
+    return;
+  }
+  renderDataSettings(row, storageBox, dataBox, ...dataSettingsCache);
+}
+
+function renderDataSettings(row, storageBox, dataBox, info, counts) {
+  const desktop = info.movable;
+  // Después de cada acción se vuelve a pintar Settings, si seguimos en ella.
+  const refresh = () => { if (view.querySelector('.settings-screen')) showSettings(); };
+  const failed = (title, err) => infoDialog(title, /not a TCG Companion backup/.test(err?.message)
+    ? tr('The file is not a TCG Companion backup.') : String(err?.message || err));
+  const action = (label, onclick, kind = 'btn-secondary') =>
+    el('button', { class: `btn ${kind} settings-btn home-display`, type: 'button', onclick }, label);
+  const plural = (n, one, many) => tr(n === 1 ? one : many, { n: n.toLocaleString(i18n.lang) });
+  const summary = (c) => tr('{cards}, {decks}, {collections} and {wishlist}.', {
+    cards: plural(c.cards, '{n} card in your collection', '{n} cards in your collection'),
+    decks: plural(c.decks, '{n} deck', '{n} decks'),
+    collections: plural(c.collections, '{n} custom collection', '{n} custom collections'),
+    wishlist: plural(c.wishlist, '{n} card in the wishlist', '{n} cards in the wishlist'),
+  });
+
+  // ----- Storage -----
+  const moveStorage = async (reset) => {
+    try {
+      const choice = await window.tcg.chooseStorage({ reset, dialogTitle: tr('Choose a folder for the database') });
+      if (!choice) return;
+      let useExisting = false;
+      if (choice.exists) {
+        useExisting = await choiceDialog(tr('There is already a database there'),
+          tr('That folder already has a TCG Companion database (maybe from another computer). Use that one, or replace it with the data you have now? If you replace it, a copy of it is kept in the folder.'),
+          [[tr('Replace it'), false, 'btn-danger'], [tr('Use that one'), true, 'btn']]);
+        if (useExisting === null) return;
+      }
+      const moved = await window.tcg.moveStorage({ dir: choice.dir, useExisting });
+      await wishlist.reload();
+      refresh();
+      infoDialog(tr('Database location changed'), tr('Your collection is now saved in {dir}. The previous folder keeps a copy of the database.', { dir: moved.dir }));
+    } catch (err) {
+      failed(tr('Could not change the location'), err);
+    }
+  };
+  const size = info.size == null ? '' : ` · ${(info.size / 1048576).toLocaleString(i18n.lang, { maximumFractionDigits: 1 })} MB`;
+  setChildren(storageBox, desktop ? [
+    info.missingDir ? el('p', { class: 'settings-warning' },
+      tr('The folder {dir} is not available (is the drive connected?), so the default folder is being used. Changes you make now are saved here, not there.', { dir: info.missingDir })) : null,
+    row(tr('Database location'), tr('The folder where your collection is saved.'),
+      el('div', { class: 'settings-actions' },
+        action(tr('Change folder'), () => moveStorage(false)),
+        info.isDefault ? null : action(tr('Use default folder'), () => moveStorage(true))),
+      [el('div', { class: 'settings-path' }, info.file + size),
+        el('p', { class: 'collection-meta settings-note' },
+          tr('To use the same collection on several computers, choose a folder synced with Google Drive, OneDrive or Dropbox, and on the other computers choose that same folder and use the database that is already there. Keep the app open on only one computer at a time: every change saves the whole file, so if two are open, the last one to save wins. On Android, use Export all data and Import data instead.'))]),
+  ] : row(tr('Database location'),
+    tr('Your collection is saved on this device. To move it to another device, use Export all data and then Import data on the other one.'), null));
+
+  // ----- Data management -----
+  const exportAll = async () => {
+    const prefs = {};
+    try { for (const k of PREF_KEYS) { const v = localStorage.getItem(k); if (v != null) prefs[k] = v; } } catch { /* sin almacenamiento */ }
+    try {
+      const file = await window.tcg.exportAllData({ prefs, dialogTitle: tr('Export all data') });
+      if (file && desktop) infoDialog(tr('Data exported'), file, [[tr('Show in folder'), () => window.tcg.revealFile(file)]]);
+    } catch (err) {
+      failed(tr('Export failed'), err);
+    }
+  };
+  const applyPrefs = (prefs) => {
+    try { for (const k of PREF_KEYS) if (typeof prefs[k] === 'string') localStorage.setItem(k, prefs[k]); } catch { /* sin almacenamiento */ }
+    if (typeof prefs.lang === 'string') { i18n.setLang(prefs.lang); renderStaticTexts(); }
+    if (typeof prefs['sfx-muted'] === 'string') sfx.setMuted(prefs['sfx-muted'] === '1');
+    hiddenTcgs.reload();
+    tcgPrefs.reload();
+  };
+  const importAll = () => {
+    const input = el('input', {
+      type: 'file', accept: '.json,application/json',
+      onchange: async () => {
+        const file = input.files[0];
+        if (!file) return;
+        const ok = await confirmDialog(tr('Import data'),
+          tr('Replace all your data with the backup "{name}"? What you have now is deleted: {summary}', { name: file.name, summary: summary(counts) }),
+          tr('Import'));
+        if (!ok) return;
+        const done = busyDialog(tr('Importing… If a set list is missing it is downloaded first.'));
+        try {
+          const result = await window.tcg.importAllData(await file.text());
+          applyPrefs(result.prefs);
+          await wishlist.reload();
+          done();
+          refresh();
+          infoDialog(tr('Data imported'), summary(result.counts));
+        } catch (err) {
+          done();
+          failed(tr('Import failed'), err);
+        }
+      },
+    });
+    input.click();
+  };
+  const clearAll = async () => {
+    const catalog = el('input', { type: 'checkbox' });
+    const ok = await confirmDialog(tr('Clear all data'),
+      tr('This deletes {summary} It also deletes your notes and hidden cards. It cannot be undone: export your data first if you might want it back.', { summary: summary(counts) }),
+      tr('Delete everything'),
+      el('label', { class: 'dialog-check' }, catalog,
+        el('span', {}, tr('Also delete the downloaded card data (sets, cards, prices and Pokédex). It is downloaded again when you need it.'))));
+    if (!ok) return;
+    const done = busyDialog(tr('Deleting…'));
+    try {
+      await window.tcg.clearAllData({ catalog: catalog.checked });
+      await wishlist.reload();
+      done();
+      refresh();
+      infoDialog(tr('Data deleted'), tr('All your data has been deleted. Your settings are kept.'));
+    } catch (err) {
+      done();
+      failed(tr('Could not delete the data'), err);
+    }
+  };
+  setChildren(dataBox,
+    row(tr('Export all data'),
+      tr('Saves your cards, decks, custom collections, wishlist, notes and settings in a backup file (JSON). Use it as a backup or to move your collection to another device.'),
+      action(tr('Export'), exportAll)),
+    row(tr('Import data'),
+      tr('Loads a backup file and replaces all your current data with it. The downloaded card data is kept.'),
+      action(tr('Import'), importAll)),
+    row(tr('Clear all data'),
+      `${tr('Deletes your collection, decks, custom collections, wishlist, notes and hidden cards. Your settings are kept.')} ${tr('Now: {summary}', { summary: summary(counts) })}`,
+      action(tr('Clear all data'), clearAll, 'btn-danger')));
+}
+
+// Diálogo con varias opciones: options = [[texto, valor, clase del botón]]. Devuelve el valor elegido, o null.
+function choiceDialog(title, text, options) {
+  return new Promise((resolve) => {
+    const close = (value) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(null); } };
+    const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(null); } },
+      el('div', { class: 'dialog', role: 'dialog' },
+        el('h3', {}, title),
+        el('p', { class: 'muted' }, text),
+        el('div', { class: 'dialog-actions' },
+          el('button', { class: 'chip', onclick: () => close(null) }, tr('Cancel')),
+          options.map(([label, value, cls]) => el('button', { class: cls, onclick: () => close(value) }, label)))));
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(overlay);
+  });
 }
 
 const tcgById = (id) => TCGS.find((t) => t.id === id) || TCGS[0];
@@ -548,6 +750,7 @@ function switchView(fn, ...args) {
   sfx.play('click');
   if (navStack.some(([f]) => TCG_TABS.has(f))) while (!onTcgTab()) navStack.pop();
   navStack[navStack.length - 1] = [fn, args];
+  view.scrollTop = 0;
   fn(...args);
 }
 
@@ -662,7 +865,7 @@ async function showTcg(tcg) {
   preconnectImages(tcg);
   const state = tcgStateOf(tcg);
   let render = () => nav.render(null); // mientras carga, solo la barra; después, también la sección
-  const go = (section) => { state.section = section; sfx.play('click'); render(); };
+  const go = (section) => { state.section = section; sfx.play('click'); view.scrollTop = 0; render(); };
   // Con los datos de la última vez la sección se pinta al momento y se pone al día detrás; si no, se espera.
   const cached = tcgNavCache[tcg.id];
   const { content: root, nav } = tcgShell(tcg, () => state.section, { data: cached || null, onSection: go });
@@ -2501,8 +2704,8 @@ async function deleteCustomCollection(collectionId, name) {
   return ok;
 }
 
-// Diálogo de confirmación con el estilo de la app. Devuelve true si se acepta.
-function confirmDialog(title, text, okLabel) {
+// Diálogo de confirmación con el estilo de la app. Devuelve true si se acepta. extra: más contenido bajo el texto.
+function confirmDialog(title, text, okLabel, extra = null) {
   return new Promise((resolve) => {
     const close = (value) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } };
@@ -2510,12 +2713,38 @@ function confirmDialog(title, text, okLabel) {
       el('div', { class: 'dialog', role: 'dialog' },
         el('h3', {}, title),
         el('p', { class: 'muted' }, text),
+        extra,
         el('div', { class: 'dialog-actions' },
           el('button', { class: 'chip', onclick: () => close(false) }, tr('Cancel')),
           el('button', { class: 'btn btn-danger', onclick: () => close(true) }, okLabel))));
     document.addEventListener('keydown', onKey, true);
     document.body.append(overlay);
   });
+}
+
+// Aviso con un solo botón (y, si hace falta, otras acciones: [[texto, función]]).
+function infoDialog(title, text, actions = []) {
+  return new Promise((resolve) => {
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(); };
+    const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); close(); } };
+    const overlay = el('div', { class: 'dialog-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
+      el('div', { class: 'dialog', role: 'dialog' },
+        el('h3', {}, title),
+        el('p', { class: 'muted dialog-text' }, text),
+        el('div', { class: 'dialog-actions' },
+          actions.map(([label, fn]) => el('button', { class: 'chip', onclick: fn }, label)),
+          el('button', { class: 'btn', onclick: close }, tr('OK')))));
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(overlay);
+  });
+}
+
+// Pantalla de espera sobre todo lo demás mientras dura una tarea; devuelve la función que la quita.
+function busyDialog(text) {
+  const overlay = el('div', { class: 'dialog-overlay' },
+    el('div', { class: 'dialog' }, el('div', { class: 'loading small' }, el('div', { class: 'spinner' }), el('p', {}, text))));
+  document.body.append(overlay);
+  return () => overlay.remove();
 }
 
 // ---------- Versiones de una carta (normal, reverse holo, con sello…) ----------

@@ -26,6 +26,38 @@ const TCGPLAYER_LINES = {
 
 let db;
 
+// Dónde está la base de datos: por defecto en la carpeta de datos de la app. En Settings se puede elegir otra
+// (p. ej. una de Google Drive, OneDrive o Dropbox, para usar la misma colección en varios ordenadores); se recuerda en
+// storage.json. Si esa carpeta no está (unidad desconectada) se abre la de siempre y Settings lo avisa (missingDir).
+// En Android la base de datos vive en el WebView y no se puede mover.
+const DB_NAME = 'tcg-companion.sqlite';
+const MOVABLE = process.platform !== 'android';
+const storageConfig = () => path.join(app.getPath('userData'), 'storage.json');
+let missingDir = null;
+
+function readStorageDir() {
+  try {
+    return JSON.parse(fs.readFileSync(storageConfig(), 'utf8')).dbDir || null;
+  } catch {
+    return null;
+  }
+}
+
+function dbDirAtStartup() {
+  const dir = MOVABLE && readStorageDir();
+  if (!dir) return app.getPath('userData');
+  if (fs.existsSync(dir)) return dir;
+  missingDir = dir;
+  return app.getPath('userData');
+}
+
+function storageInfo() {
+  const dir = path.dirname(db.filePath);
+  let size = null;
+  try { size = MOVABLE ? fs.statSync(db.filePath).size : null; } catch { /* todavía sin guardar */ }
+  return { movable: MOVABLE, dir, file: db.filePath, isDefault: dir === app.getPath('userData'), size, missingDir };
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -329,11 +361,91 @@ function registerIpc() {
     await refreshPrices(db, db.getPokemonFullArts(dexId, kinds));
     return { pokemon: db.getPokemon(dexId), cards: db.getPokemonFullArts(dexId, kinds) };
   });
+
+  // Settings › Data management.
+  ipcMain.handle('data:counts', () => db.getUserDataCounts());
+  ipcMain.handle('data:clear', (_e, { catalog = false } = {}) => {
+    db.clearUserData({ catalog: !!catalog });
+    return true;
+  });
+  // Copia de seguridad en JSON con tus datos y los ajustes de la app (prefs, del localStorage de la interfaz).
+  // Devuelve la ruta del fichero, o null si se cancela. En Android se comparte (Drive, WhatsApp…).
+  ipcMain.handle('data:export', async (e, { prefs = {}, dialogTitle } = {}) => {
+    const date = new Date().toISOString().slice(0, 10);
+    const { canceled, filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), {
+      title: dialogTitle || 'Export all data',
+      defaultPath: path.join(app.getPath('documents'), `TCG Companion backup ${date}.json`),
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (canceled || !filePath) return null;
+    const backup = { app: 'tcg-companion', version: 1, exportedAt: new Date().toISOString(), prefs, ...db.exportUserData() };
+    await fs.promises.writeFile(filePath, Buffer.from(JSON.stringify(backup), 'utf8'));
+    return filePath;
+  });
+  // Sustituye tus datos por los de una copia (el texto del fichero, que elige la interfaz). Antes descarga la lista de
+  // sets de los TCG de la copia, si no estaba, para que sus cartas caigan en sus sets. Devuelve los ajustes de la copia.
+  ipcMain.handle('data:import', async (_e, text) => {
+    let backup;
+    try {
+      backup = JSON.parse(text);
+    } catch {
+      throw new Error('The file is not a TCG Companion backup');
+    }
+    if (backup?.app !== 'tcg-companion' || typeof backup.tables !== 'object') throw new Error('The file is not a TCG Companion backup');
+    const tcgs = new Set((backup.collections || []).filter((c) => !c.custom).map((c) => c.tcg));
+    for (const tcg of tcgs) {
+      try {
+        if (tcg === 'pokemon' && !db.hasSets()) db.replaceSets(await fetchSets());
+        if (CATALOGS[tcg]) await ensureCatalog(tcg);
+        if (SET_LISTS[tcg]) await ensureSetList(tcg);
+      } catch { /* sin conexión: los sets de la copia se guardan tal cual */ }
+    }
+    db.importUserData(backup);
+    return { prefs: backup.prefs || {}, counts: db.getUserDataCounts() };
+  });
+
+  // Settings › Storage (solo escritorio).
+  ipcMain.handle('storage:info', () => storageInfo());
+  // Elige una carpeta (reset: la de siempre). Devuelve { dir, exists } (exists: ya hay una base de datos allí, p. ej.
+  // la de otro ordenador en la misma carpeta de Drive), o null si se cancela o es la carpeta actual.
+  ipcMain.handle('storage:choose', async (e, { reset = false, dialogTitle } = {}) => {
+    if (!MOVABLE) throw new Error('The database cannot be moved on this device');
+    let dir = app.getPath('userData');
+    if (!reset) {
+      const { canceled, filePaths } = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), {
+        title: dialogTitle || 'Choose a folder', defaultPath: path.dirname(db.filePath), properties: ['openDirectory', 'createDirectory'],
+      });
+      if (canceled || !filePaths?.length) return null;
+      dir = filePaths[0];
+    }
+    if (path.resolve(dir) === path.resolve(path.dirname(db.filePath))) return null;
+    return { dir, exists: fs.existsSync(path.join(dir, DB_NAME)) };
+  });
+  // Pasa a usar la base de datos de dir: la que ya había allí (useExisting) o una copia de la actual. La carpeta
+  // anterior conserva su copia.
+  ipcMain.handle('storage:move', async (_e, { dir, useExisting = false }) => {
+    if (!MOVABLE || !dir) throw new Error('The database cannot be moved');
+    const target = path.join(dir, DB_NAME);
+    if (useExisting && fs.existsSync(target)) {
+      const next = new Database(target);
+      await next.open();
+      db = next;
+    } else {
+      // La base de datos que ya hubiera allí (la de otro ordenador) no se pierde: queda una copia al lado.
+      if (fs.existsSync(target)) fs.copyFileSync(target, target.replace(/\.sqlite$/, `-replaced-${Date.now()}.sqlite`));
+      db.filePath = target;
+      db.save();
+    }
+    const isDefault = path.resolve(dir) === path.resolve(app.getPath('userData'));
+    fs.writeFileSync(storageConfig(), JSON.stringify(isDefault ? {} : { dbDir: dir }));
+    missingDir = null;
+    return storageInfo();
+  });
 }
 
 app.whenReady().then(async () => {
   if (process.platform === 'win32') app.setAppUserModelId('com.tcgcompanion.app');
-  db = new Database(path.join(app.getPath('userData'), 'tcg-companion.sqlite'));
+  db = new Database(path.join(dbDirAtStartup(), DB_NAME));
   await db.open();
   registerIpc();
   createWindow();

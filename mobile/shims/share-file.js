@@ -13,7 +13,7 @@ async function shareFile(filePath, content) {
     a.click();
     return;
   }
-  const isText = /\.(csv|txt)$/i.test(name);
+  const isText = /\.(csv|txt|json)$/i.test(name);
   const { uri } = await Filesystem.writeFile({
     path: name,
     directory: Directory.Cache,

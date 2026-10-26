@@ -59,7 +59,7 @@ const fs = {
     if (to.startsWith('/data/')) persist(to);
   },
   promises: {
-    // Solo lo usa la exportación de colecciones: el fichero se comparte en vez de guardarse.
+    // Solo lo usan las exportaciones (colecciones y copia de seguridad): el fichero se comparte en vez de guardarse.
     writeFile: (p, data) => require('./share-file').shareFile(p, data),
   },
   ready,

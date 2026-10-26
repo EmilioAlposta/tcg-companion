@@ -890,7 +890,85 @@ class Database {
     stmt.free();
     this.save();
   }
+
+  // ---------- Tus datos (Settings › Data management) ----------
+  // Lo que hace el usuario está en USER_TABLES, en las colecciones custom y en las cartas que marcó en sets sin
+  // descargar; el resto es catálogo de las APIs, que se vuelve a descargar cuando hace falta.
+
+  getUserDataCounts() {
+    return this.get(
+      `SELECT (SELECT COUNT(*) FROM owned_cards) AS cards, (SELECT COUNT(*) FROM decks) AS decks,
+              (SELECT COUNT(*) FROM collections WHERE custom = 1) AS collections, (SELECT COUNT(*) FROM wishlist) AS wishlist`
+    );
+  }
+
+  // Borra tus cartas, mazos, colecciones custom, wishlist, notas y cartas ocultas. catalog: también lo descargado.
+  clearUserData({ catalog = false } = {}) {
+    this.db.run('BEGIN');
+    try {
+      this.deleteUserRows();
+      if (catalog) for (const table of CATALOG_TABLES) this.db.run(`DELETE FROM ${table}`);
+      this.db.run('COMMIT');
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
+    }
+    if (catalog) this.db.run('VACUUM'); // el fichero vuelve a ocupar poco
+    this.save();
+  }
+
+  deleteUserRows() {
+    for (const table of USER_TABLES) this.db.run(`DELETE FROM ${table}`);
+    this.db.run(`DELETE FROM cards WHERE collection_id IN (SELECT id FROM collections WHERE custom = 1 OR synced_at IS NULL)`);
+    this.db.run('DELETE FROM collections WHERE custom = 1');
+  }
+
+  // Copia de seguridad: las tablas del usuario, las colecciones custom con sus cartas y, de las cartas que tienes,
+  // su fila y la de su set (marcado como sin descargar), para que se vean aunque el otro dispositivo no tenga el set.
+  exportUserData() {
+    const tables = Object.fromEntries(USER_TABLES.map((t) => [t, this.all(`SELECT * FROM ${t}`)]));
+    const collections = this.all(
+      `SELECT * FROM collections c WHERE c.custom = 1 OR EXISTS
+         (SELECT 1 FROM cards k JOIN owned_cards o ON o.card_id = k.id WHERE k.collection_id = c.id)`
+    ).map((c) => (c.custom ? c : { ...c, synced_at: null }));
+    const cards = this.all(
+      `SELECT k.* FROM cards k JOIN collections c ON c.id = k.collection_id
+        WHERE c.custom = 1 OR k.id IN (SELECT card_id FROM owned_cards)`
+    );
+    return { tables, collections, cards };
+  }
+
+  // Sustituye tus datos por los de una copia (exportUserData). Los sets que ya están en la base de datos no se tocan.
+  importUserData({ tables = {}, collections = [], cards = [] }) {
+    this.db.run('BEGIN');
+    try {
+      this.deleteUserRows();
+      for (const table of USER_TABLES) this.insertRows(table, tables[table], 'INSERT OR REPLACE');
+      this.insertRows('collections', collections, 'INSERT OR IGNORE');
+      this.insertRows('cards', cards, 'INSERT OR IGNORE');
+      this.db.run('COMMIT');
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
+    }
+    this.save();
+  }
+
+  // Solo las columnas que existen en la tabla (una copia de otra versión de la app puede traer más o menos).
+  insertRows(table, rows, verb) {
+    if (!Array.isArray(rows) || !rows.length) return;
+    const known = new Set(this.all(`PRAGMA table_info(${table})`).map((c) => c.name));
+    for (const row of rows) {
+      const cols = Object.keys(row || {}).filter((c) => known.has(c));
+      if (!cols.length) continue;
+      this.db.run(`${verb} INTO ${table} (${cols.join(', ')}) VALUES (${cols.map((c) => `$${c}`).join(', ')})`,
+        Object.fromEntries(cols.map((c) => [`$${c}`, row[c]])));
+    }
+  }
 }
+
+const USER_TABLES = ['owned_cards', 'owned_variants', 'hidden_cards', 'collection_notes', 'decks', 'deck_cards', 'wishlist'];
+const CATALOG_TABLES = ['cards', 'collections', 'pokedex', 'fullart_cards', 'card_prices'];
 
 // Tipos de carta de la Pokédex. kindFilter da la condición SQL sobre f.kind con los tipos pedidos (solo los
 // conocidos, para no meter texto en la consulta); sin tipos válidos, Full Arts y promos, como antes de Settings.

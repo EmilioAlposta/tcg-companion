@@ -36,4 +36,11 @@ contextBridge.exposeInMainWorld('tcg', {
   pokedexStats: (kinds) => ipcRenderer.invoke('pokedex:stats', kinds),
   getPokedex: (opts) => ipcRenderer.invoke('pokedex:get', opts),
   getPokemon: (dexId, kinds) => ipcRenderer.invoke('pokedex:pokemon', dexId, kinds),
+  userDataCounts: () => ipcRenderer.invoke('data:counts'),
+  clearAllData: (opts) => ipcRenderer.invoke('data:clear', opts),
+  exportAllData: (opts) => ipcRenderer.invoke('data:export', opts),
+  importAllData: (text) => ipcRenderer.invoke('data:import', text),
+  storageInfo: () => ipcRenderer.invoke('storage:info'),
+  chooseStorage: (opts) => ipcRenderer.invoke('storage:choose', opts),
+  moveStorage: (opts) => ipcRenderer.invoke('storage:move', opts),
 });
